@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  # Database Utama (Log Match & User)
+  postgres:
+    image: postgres:15-alpine
+    container_name: trupest_pg
+    environment:
+      POSTGRES_USER: ${DB_USER:-admin}
+      POSTGRES_PASSWORD: ${DB_PASS:-secret}
+      POSTGRES_DB: ${DB_NAME:-trupest}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+
+  # Hot Storage (Session & Game State)
+  redis:
+    image: redis:7-alpine
+    container_name: trupest_redis
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+
+volumes:
+  pg_data:
+  redis_data:
