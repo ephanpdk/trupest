@@ -233,4 +233,38 @@ export class MatchState {
       bidWinner: this.bidWinner
     };
   }
+  // --- SCORING LOGIC ---
+  
+  // Method ini dipanggil HANYA untuk testing atau saat phase == 'SCORING'
+  public calculateScore(): { 
+      team: number, 
+      bid: number, 
+      tricksWon: number, 
+      isSuccess: boolean, 
+      score: number 
+  } {
+    if (this.bidWinner === null) {
+        throw new Error("Cannot calculate score: No Bid Winner defined.");
+    }
+
+    const declaringTeam = this.bidWinner % 2; // 0 (P1/P3) or 1 (P2/P4)
+    const bidVal = this.currentBid;
+    const tricksGot = this.trickScores[declaringTeam];
+    
+    // LOGIC MATEMATIKA:
+    // Jika dapet trick >= bid, maka Skor = Bid * 10
+    // Jika kurang (jebol), maka Skor = -(Bid * 10)
+    
+    const isSuccess = tricksGot >= bidVal;
+    const finalScore = isSuccess ? (bidVal * 10) : -(bidVal * 10);
+
+    return {
+        team: declaringTeam,
+        bid: bidVal,
+        tricksWon: tricksGot,
+        isSuccess: isSuccess,
+        score: finalScore
+    };
+  }
 }
+
