@@ -1,8 +1,8 @@
-// src/game/engine/state.ts
 import { Deck } from './deck';
 import { Player, MatchPhase, GameConfig } from '../../types/state';
 import { Card, Suit } from '../../types/card';
 import { getLegalMask, resolveTrick } from './trick';
+import { isEligibleBid8 } from './bidding';
 
 export class MatchState {
   public config: GameConfig;
@@ -12,12 +12,15 @@ export class MatchState {
   public roundNumber: number;
   public dealerIndex: number; 
 
-  // Properti Day 4
   public activePlayerIndex: number; 
   public trumpSuit: Suit | null;    
   public currentTrick: Card[];      
   public trickStarterIndex: number; 
   public trickScores: number[];     
+
+  public currentBid: number;
+  public bidWinner: number | null;
+  public passCount: number;
 
   constructor(config: GameConfig, playerIds: string[]) {
     this.config = config;
@@ -27,12 +30,15 @@ export class MatchState {
     
     this.dealerIndex = 0; 
     
-    // Init Day 4 Properties
     this.activePlayerIndex = 0;
     this.trumpSuit = null;
     this.currentTrick = [];
     this.trickStarterIndex = 0;
     this.trickScores = [0, 0];
+
+    this.currentBid = 0;
+    this.bidWinner = null;
+    this.passCount = 0;
 
     this.players = playerIds.map((id, index) => ({
       id,
@@ -47,12 +53,15 @@ export class MatchState {
   public startRound(): void {
     this.phase = 'DEALING';
     
-    // Reset State Ronde Baru
     this.activePlayerIndex = (this.dealerIndex + 1) % 4;
     this.trickStarterIndex = this.activePlayerIndex;
     this.trumpSuit = null;
     this.currentTrick = [];
     this.trickScores = [0, 0];
+
+    this.currentBid = 0;
+    this.bidWinner = null;
+    this.passCount = 0;
 
     const roundSeed = `${this.config.seed}:R${this.roundNumber}`;
     this.deck = new Deck(roundSeed);
@@ -73,11 +82,77 @@ export class MatchState {
     }
 
     this.phase = 'BIDDING';
-    console.log(`[STATE] Round ${this.roundNumber} started. Cards dealt.`);
+    console.log(`[STATE] Round ${this.roundNumber} Bidding Started.`);
+  }
+
+  public playerBid(seatId: number, amount: number): { success: boolean, msg?: string } {
+    if (this.phase !== 'BIDDING') return { success: false, msg: "Not bidding phase" };
+    if (this.activePlayerIndex !== seatId) return { success: false, msg: "Not your turn" };
+    
+    if (amount < 8 || amount > 13) return { success: false, msg: "Bid must be 8-13" };
+    if (amount <= this.currentBid) return { success: false, msg: "Must bid higher than current" };
+
+    this.currentBid = amount;
+    this.bidWinner = seatId;
+    this.passCount = 0; 
+
+    console.log(`[BID] P${seatId} bids ${amount}`);
+    
+    this.nextBiddingTurn();
+    
+    return { success: true };
+  }
+
+  public playerPass(seatId: number): { success: boolean, msg?: string } {
+    if (this.phase !== 'BIDDING') return { success: false, msg: "Not bidding phase" };
+    if (this.activePlayerIndex !== seatId) return { success: false, msg: "Not your turn" };
+
+    const player = this.players[seatId];
+    
+    // FIX LOGIC ANTI-PASS
+    if (player.passOverridesLeft > 0) {
+        // Token digunakan
+        console.log(`[BID] P${seatId} uses PASS OVERRIDE`);
+    } else {
+        // Strict Check: Tidak punya token
+        if (this.currentBid === 0 && isEligibleBid8(player.hand)) {
+            return { success: false, msg: "BID_FORCED_MIN_8: Hand too strong to pass!" };
+        }
+    }
+
+    console.log(`[BID] P${seatId} PASS`);
+    this.passCount++;
+    this.nextBiddingTurn();
+
+    return { success: true };
+  }
+
+  private nextBiddingTurn() {
+    // 1. Cek Pass All
+    if (this.currentBid === 0 && this.passCount >= 4) {
+        this.currentBid = 7; 
+        this.bidWinner = (this.dealerIndex + 1) % 4;
+        this.finishBidding();
+        return;
+    }
+
+    // 2. Cek Bidding Selesai Normal
+    if (this.bidWinner !== null && (this.activePlayerIndex + 1) % 4 === this.bidWinner) {
+        this.finishBidding();
+        return;
+    }
+
+    // Geser Giliran
+    this.activePlayerIndex = (this.activePlayerIndex + 1) % 4;
+  }
+
+  private finishBidding() {
+      this.phase = 'TRUMP_SELECTION';
+      if (this.bidWinner !== null) this.activePlayerIndex = this.bidWinner;
+      console.log(`[STATE] Bidding Finished. Winner: P${this.bidWinner} with Bid ${this.currentBid}`);
   }
 
   public playCard(seatId: number, cardIndex: number): { success: boolean, msg?: string } {
-    // Validasi Fase & Giliran
     if (this.phase !== 'TRICK') return { success: false, msg: "Not trick phase" };
     if (this.activePlayerIndex !== seatId) return { success: false, msg: "Not your turn" };
 
@@ -86,7 +161,6 @@ export class MatchState {
 
     const cardToPlay = player.hand[cardIndex];
 
-    // Validasi Legal Move (Follow Suit SRS 4.5.1)
     const leadSuit = this.currentTrick.length > 0 ? this.currentTrick[0].suit : null;
     const mask = getLegalMask(player.hand, leadSuit);
     
@@ -94,16 +168,13 @@ export class MatchState {
       return { success: false, msg: "Illegal Move: Must follow suit!" }; 
     }
 
-    // Eksekusi Move
     player.hand.splice(cardIndex, 1);
     this.currentTrick.push(cardToPlay);
     console.log(`[GAME] P${seatId} plays ${cardToPlay.rank}${cardToPlay.suit}`);
 
-    // Cek Trick Selesai
     if (this.currentTrick.length === 4) {
        this.resolveCurrentTrick();
     } else {
-       // Geser Giliran
        this.activePlayerIndex = (this.activePlayerIndex + 1) % 4;
     }
 
@@ -111,22 +182,18 @@ export class MatchState {
   }
 
   private resolveCurrentTrick() {
-    // Tentukan Pemenang (SRS 4.5.3)
     const winnerOffset = resolveTrick(this.currentTrick, this.trumpSuit);
     const winnerSeat = (this.trickStarterIndex + winnerOffset) % 4;
 
     console.log(`[TRICK] Winner: Player ${winnerSeat} (Card: ${this.currentTrick[winnerOffset].rank}${this.currentTrick[winnerOffset].suit})`);
 
-    // Update Skor Tim (0&2 vs 1&3)
     const winningTeam = winnerSeat % 2; 
     this.trickScores[winningTeam]++;
 
-    // Reset Trick & Set Lead Berikutnya
     this.currentTrick = [];
     this.activePlayerIndex = winnerSeat;
     this.trickStarterIndex = winnerSeat;
 
-    // Cek Ronde Selesai (Kartu Habis)
     if (this.players[0].hand.length === 0) {
       this.phase = 'SCORING'; 
       console.log("[STATE] Round Finished.");
@@ -140,7 +207,9 @@ export class MatchState {
       activePlayer: this.activePlayerIndex,
       trumpSuit: this.trumpSuit,
       currentTrick: this.currentTrick,
-      myHand: this.players[observerSeat].hand
+      myHand: this.players[observerSeat].hand,
+      currentBid: this.currentBid,
+      bidWinner: this.bidWinner
     };
   }
 
