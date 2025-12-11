@@ -1,3 +1,4 @@
+// src/game/engine/state.ts
 import { Deck } from './deck';
 import { Player, MatchPhase, GameConfig } from '../../types/state';
 import { Card, Suit } from '../../types/card';
@@ -14,6 +15,7 @@ export class MatchState {
 
   public activePlayerIndex: number; 
   public trumpSuit: Suit | null;    
+  public isTrumpHidden: boolean; // Day 6
   public currentTrick: Card[];      
   public trickStarterIndex: number; 
   public trickScores: number[];     
@@ -32,6 +34,7 @@ export class MatchState {
     
     this.activePlayerIndex = 0;
     this.trumpSuit = null;
+    this.isTrumpHidden = false; // Init
     this.currentTrick = [];
     this.trickStarterIndex = 0;
     this.trickScores = [0, 0];
@@ -56,6 +59,7 @@ export class MatchState {
     this.activePlayerIndex = (this.dealerIndex + 1) % 4;
     this.trickStarterIndex = this.activePlayerIndex;
     this.trumpSuit = null;
+    this.isTrumpHidden = false;
     this.currentTrick = [];
     this.trickScores = [0, 0];
 
@@ -72,18 +76,18 @@ export class MatchState {
     
     for (let i = 0; i < 4; i++) {
       const cards = this.deck.deal(13);
-      
       const player = this.players.find(p => p.seatId === currentSeat);
       if (player) {
         player.hand = cards;
       }
-
       currentSeat = (currentSeat + 1) % 4;
     }
 
     this.phase = 'BIDDING';
     console.log(`[STATE] Round ${this.roundNumber} Bidding Started.`);
   }
+
+  // --- BIDDING ---
 
   public playerBid(seatId: number, amount: number): { success: boolean, msg?: string } {
     if (this.phase !== 'BIDDING') return { success: false, msg: "Not bidding phase" };
@@ -97,9 +101,7 @@ export class MatchState {
     this.passCount = 0; 
 
     console.log(`[BID] P${seatId} bids ${amount}`);
-    
     this.nextBiddingTurn();
-    
     return { success: true };
   }
 
@@ -109,12 +111,9 @@ export class MatchState {
 
     const player = this.players[seatId];
     
-    // FIX LOGIC ANTI-PASS
     if (player.passOverridesLeft > 0) {
-        // Token digunakan
         console.log(`[BID] P${seatId} uses PASS OVERRIDE`);
     } else {
-        // Strict Check: Tidak punya token
         if (this.currentBid === 0 && isEligibleBid8(player.hand)) {
             return { success: false, msg: "BID_FORCED_MIN_8: Hand too strong to pass!" };
         }
@@ -123,26 +122,20 @@ export class MatchState {
     console.log(`[BID] P${seatId} PASS`);
     this.passCount++;
     this.nextBiddingTurn();
-
     return { success: true };
   }
 
   private nextBiddingTurn() {
-    // 1. Cek Pass All
     if (this.currentBid === 0 && this.passCount >= 4) {
         this.currentBid = 7; 
         this.bidWinner = (this.dealerIndex + 1) % 4;
         this.finishBidding();
         return;
     }
-
-    // 2. Cek Bidding Selesai Normal
     if (this.bidWinner !== null && (this.activePlayerIndex + 1) % 4 === this.bidWinner) {
         this.finishBidding();
         return;
     }
-
-    // Geser Giliran
     this.activePlayerIndex = (this.activePlayerIndex + 1) % 4;
   }
 
@@ -151,6 +144,33 @@ export class MatchState {
       if (this.bidWinner !== null) this.activePlayerIndex = this.bidWinner;
       console.log(`[STATE] Bidding Finished. Winner: P${this.bidWinner} with Bid ${this.currentBid}`);
   }
+
+  // --- TRUMP SELECTION (DAY 6) ---
+
+  public playerSelectTrump(seatId: number, suit: Suit, hidden: boolean = false): { success: boolean, msg?: string } {
+    if (this.phase !== 'TRUMP_SELECTION') return { success: false, msg: "Not trump selection phase" };
+    if (this.bidWinner !== seatId) return { success: false, msg: "Only declarer can select trump" }; // 
+
+    this.trumpSuit = suit;
+    this.isTrumpHidden = hidden;
+
+    console.log(`[TRUMP] P${seatId} selects ${suit} ${hidden ? '(HIDDEN)' : '(OPEN)'}`);
+    this.startTrickPhase();
+
+    return { success: true };
+  }
+
+  private startTrickPhase() {
+      this.phase = 'TRICK';
+      // Declarer leads first trick
+      if (this.bidWinner !== null) {
+          this.activePlayerIndex = this.bidWinner;
+          this.trickStarterIndex = this.bidWinner;
+      }
+      console.log(`[STATE] Phase TRICK started. Lead: P${this.activePlayerIndex}`);
+  }
+
+  // --- TRICK EXECUTION ---
 
   public playCard(seatId: number, cardIndex: number): { success: boolean, msg?: string } {
     if (this.phase !== 'TRICK') return { success: false, msg: "Not trick phase" };
@@ -162,7 +182,7 @@ export class MatchState {
     const cardToPlay = player.hand[cardIndex];
 
     const leadSuit = this.currentTrick.length > 0 ? this.currentTrick[0].suit : null;
-    const mask = getLegalMask(player.hand, leadSuit);
+    const mask = getLegalMask(player.hand, leadSuit); // [cite: 284]
     
     if (!mask[cardIndex]) {
       return { success: false, msg: "Illegal Move: Must follow suit!" }; 
@@ -206,15 +226,11 @@ export class MatchState {
       dealer: this.dealerIndex,
       activePlayer: this.activePlayerIndex,
       trumpSuit: this.trumpSuit,
+      isTrumpHidden: this.isTrumpHidden,
       currentTrick: this.currentTrick,
       myHand: this.players[observerSeat].hand,
       currentBid: this.currentBid,
       bidWinner: this.bidWinner
     };
-  }
-
-  public debugSetTrump(suit: Suit) {
-      this.trumpSuit = suit;
-      this.phase = 'TRICK';
   }
 }
