@@ -1,6 +1,10 @@
 import { MatchState } from '../state';
 import { getLegalMask, resolveTrick } from '../trick'; 
 
+// --- FIX: IMPORT INI YANG TADI HILANG ---
+import { applyRoundScore } from './scoring'; 
+// ----------------------------------------
+
 export function handlePlayCard(state: MatchState, seatId: number, cardIndex: number): { success: boolean, msg?: string } {
     if (state.phase !== 'TRICK') return { success: false, msg: "Not trick phase" };
     if (state.activePlayerIndex !== seatId) return { success: false, msg: `Not your turn (Active: ${state.activePlayerIndex}, You: ${seatId})` };
@@ -48,12 +52,16 @@ function resolveCurrentTrick(state: MatchState) {
     const winningTeam = winnerSeat % 2; 
     state.trickScores[winningTeam]++;
 
-    state.currentTrick = []; // Reset Trick
+    state.currentTrick = []; 
     state.activePlayerIndex = winnerSeat;
     state.trickStarterIndex = winnerSeat;
 
+    // CEK APAKAH RONDE BERAKHIR
     if (state.players[0].hand.length === 0) {
         state.phase = 'SCORING'; 
-        console.log("[STATE] Round Finished.");
+        console.log("[STATE] Round Finished. Calculating Score...");
+        
+        // PANGGIL FUNGSI SCORING DISINI
+        applyRoundScore(state);
     }
 }

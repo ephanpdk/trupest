@@ -47,7 +47,8 @@ export class MatchState {
       seatId: index,
       hand: [],
       isBot: id.startsWith('Bot'),
-      passOverridesLeft: 1 
+      passOverridesLeft: 1,
+      score: 0
     }));
   }
 

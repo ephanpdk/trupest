@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useGameStore } from './stores/game';
 import { ref, computed } from 'vue';
-import SimpleBoard from './components/SimpleBoard.vue'; // <--- 1. IMPORT KOMPONEN BARU
+import SimpleBoard from './components/SimpleBoard.vue';
 
 const game = useGameStore();
 const inputName = ref('Player1');
@@ -11,7 +11,6 @@ const bidAmount = ref(8);
 
 const mySeatId = computed(() => {
   if (!game.gameState || !game.gameState.players) return -1;
-  
   const me = game.gameState.players.find((p: any) => p.id === game.myPlayerId);
   return me ? me.seatId : -1;
 });
@@ -127,7 +126,7 @@ const selectTrump = (suit: string) => {
         <div class="p-5 bg-gray-800 rounded-lg border border-gray-700 relative overflow-hidden h-fit">
           <h2 class="text-xl text-purple-400 mb-4 border-b border-gray-700 pb-2">Player Actions</h2>
           
-          <div v-if="!isMyTurn && game.phase !== 'TRUMP_SELECTION' && game.phase !== 'TRICK'" class="absolute inset-0 bg-black/60 z-10 flex items-center justify-center backdrop-blur-sm">
+          <div v-if="!isMyTurn && game.phase !== 'TRUMP_SELECTION' && game.phase !== 'TRICK' && game.phase !== 'SCORING'" class="absolute inset-0 bg-black/60 z-10 flex items-center justify-center backdrop-blur-sm">
              <div class="bg-yellow-900/80 border border-yellow-600 text-yellow-200 px-6 py-3 rounded-full font-bold animate-pulse">
                ⏳ Menunggu giliran Seat {{ game.gameState.activePlayer }}...
              </div>
@@ -172,6 +171,32 @@ const selectTrump = (suit: string) => {
                 <p class="text-sm text-gray-400 mt-1">Lead: Seat {{ game.gameState.activePlayer }}</p>
              </div>
           </div>
+
+          <div v-else-if="game.phase === 'SCORING'" class="text-center space-y-4">
+             <div class="p-6 bg-blue-900/40 border border-blue-500 rounded-lg shadow-xl animate-fade-in">
+                <h2 class="text-2xl font-bold text-white mb-2">RONDE SELESAI</h2>
+                <div class="text-4xl mb-4">🏁</div>
+                
+                <div class="grid grid-cols-2 gap-4 text-left bg-gray-900 p-4 rounded">
+                   <div>
+                      <p class="text-gray-400 text-xs uppercase tracking-wider">TEAM 1 (P1 & P3)</p>
+                      <p class="text-2xl font-bold text-cyan-400">
+                        {{ (game.gameState?.players?.[0]?.score || 0) + (game.gameState?.players?.[2]?.score || 0) }} Pts
+                      </p>
+                   </div>
+                   <div>
+                      <p class="text-gray-400 text-xs uppercase tracking-wider">TEAM 2 (P2 & P4)</p>
+                      <p class="text-2xl font-bold text-cyan-400">
+                        {{ (game.gameState?.players?.[1]?.score || 0) + (game.gameState?.players?.[3]?.score || 0) }} Pts
+                      </p>
+                   </div>
+                </div>
+
+                <p class="mt-4 text-sm text-blue-300 italic animate-pulse">
+                   Menunggu Admin memulai ronde baru...
+                </p>
+             </div>
+          </div>
           
           <div v-else class="text-gray-500 italic text-center">
             Menunggu update server...
@@ -180,7 +205,7 @@ const selectTrump = (suit: string) => {
 
       </div>
 
-      <div v-if="game.phase === 'TRICK'" class="w-full">
+      <div v-if="game.phase === 'TRICK'" class="w-full transition-all duration-500">
          <SimpleBoard 
            :gameState="game.gameState"
            :playerId="game.myPlayerId"

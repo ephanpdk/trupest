@@ -1,5 +1,6 @@
 // Import dasar dari Shared
-import { Card, Suit, GamePhase } from '@shared/types'; // Menggunakan alias path
+// Sesuaikan path ini jika folder shared ada di root project (../../shared/types)
+import { Card, Suit, GamePhase } from '../../../shared/types'; 
 
 // Interface Player internal Server (lebih detail dari PlayerPublic)
 export interface Player {
@@ -9,6 +10,9 @@ export interface Player {
   hand: Card[];        // Kartu asli
   isBot: boolean;
   passOverridesLeft: number;
+  
+  // INI YANG SEBELUMNYA HILANG:
+  score: number;
 }
 
 export interface GameConfig {
