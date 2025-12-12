@@ -1,6 +1,5 @@
 // shared/types.ts
 
-// --- 1. CORE ENTITIES (Kartu & Dasar) ---
 export type Suit = 'S' | 'H' | 'D' | 'C';
 export type Rank = '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' | '10' | 'J' | 'Q' | 'K' | 'A';
 
@@ -11,58 +10,54 @@ export interface Card {
 
 export type GamePhase = 'WAITING' | 'DEALING' | 'BIDDING' | 'TRUMP_SELECTION' | 'TRICK' | 'SCORING' | 'FINISHED';
 
-// --- 2. PUBLIC STATE (Apa yang dilihat Client) ---
-// Kita pisahkan data sensitif (kartu lawan) dari data publik
 export interface PlayerPublic {
     id: string;
     name: string;
     seatId: number;
     isBot: boolean;
-    cardCount: number; // Client cuma perlu tau jumlah kartu lawan, bukan isinya
-    score: number;     // Utk tracking score sementara
-    isReady?: boolean; // Utk lobby
+    cardCount: number; 
+    score: number;     
+    isReady?: boolean; 
 }
 
 export interface GameStateSnapshot {
     roomId: string;
     phase: GamePhase;
     players: PlayerPublic[];
-    
-    // Context Permainan
     roundNumber: number;
     dealerIndex: number;
     activePlayerIndex: number;
-    
-    // Trump & Bidding
     trumpSuit: Suit | null;
     isTrumpHidden: boolean;
     currentBid: number;
     bidWinner: number | null;
-    
-    // Trick saat ini (Kartu di meja)
     currentTrick: Card[];
     trickStarterIndex: number;
-    trickScores: number[]; // [Team A, Team B]
-    
-    // Kartu saya (hanya diisi server saat kirim ke ownernya)
+    trickScores: number[]; 
     myHand?: Card[]; 
 }
 
-// --- 3. SOCKET EVENTS (Protokol Komunikasi) ---
+// --- SOCKET EVENTS ---
 
-// Client -> Server (Action)
 export interface ClientEvents {
+    // Legacy / UI Events
     'C_CREATE_ROOM': { playerName: string };
     'C_JOIN_ROOM': { roomId: string; playerName: string };
-    'C_BID': { amount: number }; // 0 = Pass
-    'C_SELECT_TRUMP': { suit: Suit; hidden: boolean };
-    'C_PLAY_CARD': { cardIndex: number };
+    
+    // UPDATE: Event Utama yang didengar Server (sesuai index.ts)
+    'JOIN_GAME': { matchId: string; playerId: string };
+    
+    'PLAYER_ACTION': {
+        matchId: string;
+        action: 'BID' | 'PASS' | 'SELECT_TRUMP' | 'PLAY_CARD';
+        data: any; // Kita buat any dulu untuk data yang dinamis, atau bisa diperdetail
+    };
 }
 
-// Server -> Client (Notification)
 export interface ServerEvents {
     'S_ROOM_CREATED': { roomId: string; playerId: string };
-    'S_GAME_STATE': GameStateSnapshot; // Update full state
-    'S_ERROR': { message: string };
+    'GAME_UPDATE': GameStateSnapshot; // Server mengirim ini
+    'STATE_CHANGED': Partial<GameStateSnapshot>; // Server mengirim ini
+    'ACTION_ERROR': { msg: string };
     'S_PLAYER_JOINED': { player: PlayerPublic };
 }

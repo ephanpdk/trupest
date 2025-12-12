@@ -1,113 +1,52 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
+import { socketService, socketState } from '../services/socket';
+import type { GameStateSnapshot } from '@shared/types';
 
 export const useGameStore = defineStore('game', () => {
-    // STATE
-    const socket = ref<WebSocket | null>(null);
-    const isConnected = ref(false);
-    const gameState = ref<any>(null);
-    const myPlayerId = ref('');
-    const lastError = ref('');
+  const gameState = ref<GameStateSnapshot | null>(null);
+  const myPlayerId = ref<string>('');
+  const lastError = ref<string | null>(null);
 
-    // GETTERS
-    const phase = computed(() => gameState.value?.phase || 'LOBBY');
+  const isConnected = computed(() => socketState.isConnected);
+  const phase = computed(() => gameState.value?.phase || 'LOBBY');
 
-    // ACTIONS
-    function connect(matchId: string, playerId: string) {
-        if (socket.value) socket.value.close();
-        
-        myPlayerId.value = playerId;
-        
-        // Pastikan port 3000 sesuai dengan server lu
-        socket.value = new WebSocket('ws://localhost:3000/ws');
-
-        socket.value.onopen = () => {
-            console.log('✅ WS Connected');
-            isConnected.value = true;
-            lastError.value = '';
-            // Auto Join
-            send('JOIN_GAME', { matchId, playerId });
-        };
-
-        socket.value.onmessage = (event) => {
-            const msg = JSON.parse(event.data);
-            handleMessage(msg);
-        };
-
-        socket.value.onclose = () => {
-            console.log('❌ WS Disconnected');
-            isConnected.value = false;
-        };
-
-        socket.value.onerror = (err) => {
-            console.error('WS Error', err);
-            lastError.value = 'Connection Error';
-        };
+  function connect(matchId: string, playerName: string) {
+    myPlayerId.value = playerName;
+    
+    if (!socketService.socket?.readyState) {
+        socketService.connect();
+        // Delay sedikit memastikan koneksi terbuka
+        setTimeout(() => sendJoin(matchId, playerName), 500);
+    } else {
+        sendJoin(matchId, playerName);
     }
+  }
 
-    function send(type: string, payload: any) {
-        if (socket.value && socket.value.readyState === WebSocket.OPEN) {
-            socket.value.send(JSON.stringify({ type, payload }));
-        }
-    }
+  function sendJoin(matchId: string, playerName: string) {
+      // TypeScript sekarang senang karena JOIN_GAME sudah ada di shared/types
+      socketService.send('JOIN_GAME', { matchId, playerId: playerName });
+  }
 
-    function handleMessage(msg: any) {
-        switch (msg.type) {
-            case 'GAME_UPDATE':
-                // Kita gunakan Object.assign atau spread biar Vue 100% mendeteksi perubahan
-                if (gameState.value) {
-                    Object.assign(gameState.value, msg.payload);
-                } else {
-                    gameState.value = msg.payload;
-                }
-                break;
-            case 'STATE_CHANGED':
-                if (gameState.value) {
-                    // 1. Update Phase & Giliran (Yang lama)
-                    gameState.value.phase = msg.payload.phase;
-                    gameState.value.activePlayer = msg.payload.activePlayer;
-                    // 2. [BARU] Update Data Lelang (Bid)
-                    // PENTING: Cek undefined biar gak nimpah data dgn kosong kalau server gak kirim
-                    if (msg.payload.currentBid !== undefined) {
-                        gameState.value.currentBid = msg.payload.currentBid;
-                    }
-                    if (msg.payload.bidWinner !== undefined) {
-                        gameState.value.bidWinner = msg.payload.bidWinner;
-                    }
+  function send(type: string, payload: any) {
+      if (type === 'PLAYER_ACTION') {
+          // TypeScript sekarang senang karena PLAYER_ACTION sudah ada di shared/types
+          socketService.send('PLAYER_ACTION', payload);
+      }
+  }
 
-                    // 3. [BARU] Update Data Truf & Kartu
-                    if (msg.payload.trumpSuit !== undefined) {
-                        gameState.value.trumpSuit = msg.payload.trumpSuit;
-                    }
-                    if (msg.payload.isTrumpHidden !== undefined) {
-                        gameState.value.isTrumpHidden = msg.payload.isTrumpHidden;
-                    }
-                }
-                break;
-            case 'ACTION_ERROR':
-                lastError.value = msg.payload.msg;
-                setTimeout(() => lastError.value = '', 3000);
-                break;
-        }
-    }
+  function handleServerEvent(event: any) {
+      if (event.type === 'GAME_UPDATE') {
+          gameState.value = event.payload;
+      }
+      if (event.type === 'STATE_CHANGED') {
+          if (gameState.value) Object.assign(gameState.value, event.payload);
+      }
+      if (event.type === 'ACTION_ERROR') {
+          lastError.value = event.payload.msg;
+          setTimeout(() => lastError.value = null, 3000);
+      }
+  }
 
-    function bid(amount: number) {
-        // Kirim dummy data bid dulu buat test
-        send('PLAYER_ACTION', {
-            matchId: gameState.value?.matchId || 'TEST-MATCH-001', 
-            action: 'BID',
-            data: { playerId: myPlayerId.value, amount }
-        });
-    }
-
-    return { 
-        isConnected, 
-        gameState, 
-        lastError,
-        phase, 
-        myPlayerId,
-        connect, 
-        bid,
-        send
-    };
+  return { gameState, myPlayerId, isConnected, lastError, phase, connect, send, handleServerEvent };
 });

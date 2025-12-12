@@ -1,5 +1,8 @@
+// server/src/index.ts
+
 import Fastify, { FastifyRequest } from 'fastify';
 import websocket from '@fastify/websocket';
+import cors from '@fastify/cors'; // Tambahkan ini agar aman
 import { WebSocket } from 'ws';
 import dotenv from 'dotenv';
 import { gameManager } from './game/manager';
@@ -7,6 +10,12 @@ import { gameManager } from './game/manager';
 dotenv.config();
 
 const server = Fastify({ logger: true });
+
+// Register CORS (Penting untuk akses browser)
+server.register(cors, {
+  origin: '*',
+  methods: ['GET', 'POST']
+});
 
 server.register(websocket);
 
@@ -19,8 +28,11 @@ server.register(async function (fastify) {
     return { status: 'ok', uptime: process.uptime() };
   });
 
-  fastify.get('/ws', { websocket: true }, (connection: { socket: WebSocket }, req: FastifyRequest) => {
+  // UPDATE: Route diganti jadi '/game' agar sesuai dengan Client
+  fastify.get('/game', { websocket: true }, (connection: { socket: WebSocket }, req: FastifyRequest) => {
     let currentMatchId: string | null = null;
+
+    console.log('🔌 New Client Connected');
 
     connection.socket.on('message', (msg) => {
       try {
@@ -32,19 +44,24 @@ server.register(async function (fastify) {
         const { type, payload } = parsed;
 
         // ----------------------------------------------------
-        // HANDLE JOIN GAME
+        // HANDLE JOIN GAME (Logic dari Client: game.connect)
         // ----------------------------------------------------
-        if (type === 'JOIN_GAME') {
+        // Note: Client mengirim 'C_JOIN_ROOM' atau 'C_CREATE_ROOM' di step sebelumnya, 
+        // tapi di store logic terakhir kamu kirim 'JOIN_GAME'. Kita handle 'JOIN_GAME' disini.
+        if (type === 'JOIN_GAME' || type === 'C_JOIN_ROOM') {
             const { matchId, playerId } = payload;
-            currentMatchId = matchId;
+            currentMatchId = matchId; // Simpan context koneksi ini ada di room mana
 
+            // Manage Connection Set
             if (!matchConnections.has(matchId)) {
                 matchConnections.set(matchId, new Set());
             }
             matchConnections.get(matchId)?.add(connection.socket);
 
+            // Get or Create Match Logic
             let match = gameManager.getMatch(matchId);
             if (!match) {
+                console.log(`✨ Creating New Match: ${matchId}`);
                 // Auto create match dengan bot jika belum ada
                 match = gameManager.createMatch(matchId, [playerId, 'Bot1', 'Bot2', 'Bot3']);
                 match.startRound();
@@ -52,6 +69,8 @@ server.register(async function (fastify) {
 
             const player = match.players.find(p => p.id === playerId);
             const seatId = player ? player.seatId : -1;
+
+            console.log(`✅ Player ${playerId} joined Match ${matchId} at Seat ${seatId}`);
 
             // Kirim Full State ke pemain yang baru join
             connection.socket.send(JSON.stringify({
@@ -61,7 +80,7 @@ server.register(async function (fastify) {
         }
 
         // ----------------------------------------------------
-        // HANDLE PLAYER ACTION
+        // HANDLE PLAYER ACTION (BID, PASS, PLAY, TRUMP)
         // ----------------------------------------------------
         if (type === 'PLAYER_ACTION') {
             const { matchId, action, data } = payload;
@@ -145,6 +164,7 @@ server.register(async function (fastify) {
 
     // Cleanup saat koneksi putus
     connection.socket.on('close', () => {
+        console.log('❌ Client Disconnected');
         if (currentMatchId && matchConnections.has(currentMatchId)) {
             matchConnections.get(currentMatchId)?.delete(connection.socket);
         }
@@ -156,7 +176,7 @@ const start = async () => {
   try {
     const port = parseInt(process.env.PORT || '3000');
     await server.listen({ port, host: '0.0.0.0' });
-    console.log(`Server running on port ${port}`);
+    console.log(`🚀 Server running on port ${port} (WS Route: /game)`);
   } catch (err) {
     server.log.error(err);
     process.exit(1);

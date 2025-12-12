@@ -6,16 +6,14 @@ const game = useGameStore();
 const inputName = ref('Player1');
 const inputMatch = ref('TEST-MATCH-001');
 
-// State untuk input angka bid
 const bidAmount = ref(8);
 
-// [LOGIKA BARU] Deteksi Kursi berdasarkan Nama (Khusus Testing)
 const mySeatId = computed(() => {
   if (game.myPlayerId === 'Player1') return 0;
   if (game.myPlayerId === 'Bot1') return 1;
   if (game.myPlayerId === 'Bot2') return 2;
   if (game.myPlayerId === 'Bot3') return 3;
-  return -1; // Tidak dikenali
+  return -1; 
 });
 
 const isMyTurn = computed(() => {
@@ -30,9 +28,7 @@ const joinGame = () => {
   game.connect(inputMatch.value, inputName.value);
 };
 
-// Fungsi BID (PERBAIKAN: Gunakan inputMatch.value)
 const doBid = () => {
-  // Kita bypass action store dan kirim manual agar matchId benar
   game.send('PLAYER_ACTION', { 
       matchId: inputMatch.value, 
       action: 'BID', 
@@ -40,19 +36,17 @@ const doBid = () => {
   });
 };
 
-// Fungsi PASS (PERBAIKAN: Gunakan inputMatch.value)
 const doPass = () => {
   game.send('PLAYER_ACTION', { 
-      matchId: inputMatch.value, // <--- PERBAIKAN PENTING DI SINI
+      matchId: inputMatch.value, 
       action: 'PASS', 
       data: { playerId: game.myPlayerId } 
   });
 };
 
-// Fungsi PILIH TRUF (PERBAIKAN: Gunakan inputMatch.value)
 const selectTrump = (suit: string) => {
   game.send('PLAYER_ACTION', { 
-      matchId: inputMatch.value, // <--- PERBAIKAN PENTING DI SINI
+      matchId: inputMatch.value, 
       action: 'SELECT_TRUMP', 
       data: { 
         playerId: game.myPlayerId, 
@@ -132,7 +126,7 @@ const selectTrump = (suit: string) => {
           
           <div v-if="!isMyTurn && game.phase !== 'TRUMP_SELECTION'" class="absolute inset-0 bg-black/60 z-10 flex items-center justify-center backdrop-blur-sm">
              <div class="bg-yellow-900/80 border border-yellow-600 text-yellow-200 px-6 py-3 rounded-full font-bold animate-pulse">
-                ⏳ Menunggu giliran Seat {{ game.gameState.activePlayer }}...
+               ⏳ Menunggu giliran Seat {{ game.gameState.activePlayer }}...
              </div>
           </div>
 
