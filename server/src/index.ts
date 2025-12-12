@@ -10,6 +10,7 @@ const server = Fastify({ logger: true });
 
 server.register(websocket);
 
+// Map untuk menyimpan koneksi per Match ID
 const matchConnections = new Map<string, Set<WebSocket>>();
 
 server.register(async function (fastify) {
@@ -23,9 +24,16 @@ server.register(async function (fastify) {
 
     connection.socket.on('message', (msg) => {
       try {
-        const parsed = JSON.parse(msg.toString());
+        // [DEBUG 1] Tangkap Raw Message sebelum diparse
+        const messageString = msg.toString();
+        console.log('📨 [RAW MESSAGE]:', messageString);
+
+        const parsed = JSON.parse(messageString);
         const { type, payload } = parsed;
 
+        // ----------------------------------------------------
+        // HANDLE JOIN GAME
+        // ----------------------------------------------------
         if (type === 'JOIN_GAME') {
             const { matchId, playerId } = payload;
             currentMatchId = matchId;
@@ -37,6 +45,7 @@ server.register(async function (fastify) {
 
             let match = gameManager.getMatch(matchId);
             if (!match) {
+                // Auto create match dengan bot jika belum ada
                 match = gameManager.createMatch(matchId, [playerId, 'Bot1', 'Bot2', 'Bot3']);
                 match.startRound();
             }
@@ -44,34 +53,60 @@ server.register(async function (fastify) {
             const player = match.players.find(p => p.id === playerId);
             const seatId = player ? player.seatId : -1;
 
+            // Kirim Full State ke pemain yang baru join
             connection.socket.send(JSON.stringify({
                 type: 'GAME_UPDATE',
                 payload: match.getPublicState(seatId !== -1 ? seatId : 0)
             }));
         }
 
+        // ----------------------------------------------------
+        // HANDLE PLAYER ACTION
+        // ----------------------------------------------------
         if (type === 'PLAYER_ACTION') {
             const { matchId, action, data } = payload;
+            
+            // [DEBUG 2] Pastikan Server sadar ada Action masuk
+            console.log(`🔍 [ACTION DETECTED]: ${action} from Player: ${data.playerId}`);
+
             const match = gameManager.getMatch(matchId);
 
             if (match) {
                 const player = match.players.find(p => p.id === data.playerId);
                 
                 if (player) {
-                    // FIX: Explicitly type msg as optional string
+                    // [DEBUG 3] Pastikan Player ditemukan di kursi yang benar
+                    console.log(`👤 [PLAYER FOUND]: Seat ${player.seatId} (Active Turn: ${match.activePlayerIndex})`);
+
                     let result: { success: boolean; msg?: string } = { success: false, msg: 'Unknown' };
 
-                    if (action === 'BID') result = match.playerBid(player.seatId, data.amount);
-                    else if (action === 'PASS') result = match.playerPass(player.seatId);
-                    else if (action === 'SELECT_TRUMP') result = match.playerSelectTrump(player.seatId, data.suit, data.hidden);
-                    else if (action === 'PLAY_CARD') result = match.playCard(player.seatId, data.cardIndex);
+                    // Eksekusi Logic Game
+                    if (action === 'BID') {
+                        result = match.playerBid(player.seatId, data.amount);
+                    } 
+                    else if (action === 'PASS') {
+                        // [DEBUG 4] INI YANG KITA CARI: Apakah fungsi ini dipanggil?
+                        console.log('🚀 [EXECUTING]: match.playerPass()...');
+                        result = match.playerPass(player.seatId);
+                    }
+                    else if (action === 'SELECT_TRUMP') {
+                        result = match.playerSelectTrump(player.seatId, data.suit, data.hidden);
+                    }
+                    else if (action === 'PLAY_CARD') {
+                        result = match.playCard(player.seatId, data.cardIndex);
+                    }
 
+                    // Jika Logic Gagal (Invalid Move/Not Turn)
                     if (!result.success) {
+                        console.log(`❌ [LOGIC ERROR]: ${result.msg}`);
                         connection.socket.send(JSON.stringify({ 
                             type: 'ACTION_ERROR', 
                             payload: { msg: result.msg || 'Unknown Error' } 
                         }));
                     } else {
+                        console.log(`✅ [SUCCESS]: Action ${action} executed.`);
+                        
+                        // Jika Sukses -> BROADCAST ke semua orang di room
                         const roomSockets = matchConnections.get(matchId);
                         if (roomSockets) {
                             const broadcastMsg = JSON.stringify({
@@ -79,7 +114,12 @@ server.register(async function (fastify) {
                                 payload: {
                                     phase: match.phase,
                                     activePlayer: match.activePlayerIndex,
-                                    lastAction: action
+                                    lastAction: action,
+                                    // DATA PENTING AGAR UI UPDATE REALTIME:
+                                    currentBid: match.currentBid, 
+                                    bidWinner: match.bidWinner,   
+                                    trumpSuit: match.trumpSuit,
+                                    isTrumpHidden: match.isTrumpHidden
                                 }
                             });
                             
@@ -90,7 +130,11 @@ server.register(async function (fastify) {
                             });
                         }
                     }
+                } else {
+                    console.log('❌ [ERROR]: Player ID not found in match!');
                 }
+            } else {
+                console.log('❌ [ERROR]: Match ID not found!');
             }
         }
 
@@ -99,6 +143,7 @@ server.register(async function (fastify) {
       }
     });
 
+    // Cleanup saat koneksi putus
     connection.socket.on('close', () => {
         if (currentMatchId && matchConnections.has(currentMatchId)) {
             matchConnections.get(currentMatchId)?.delete(connection.socket);

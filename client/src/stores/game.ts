@@ -52,22 +52,44 @@ export const useGameStore = defineStore('game', () => {
     }
 
     function handleMessage(msg: any) {
-        switch (msg.type) {
-            case 'GAME_UPDATE':
-                gameState.value = msg.payload;
-                break;
-            case 'STATE_CHANGED':
-                if (gameState.value) {
-                    gameState.value.phase = msg.payload.phase;
-                    gameState.value.activePlayer = msg.payload.activePlayer;
+        switch (msg.type) {
+            case 'GAME_UPDATE':
+                // Kita gunakan Object.assign atau spread biar Vue 100% mendeteksi perubahan
+                if (gameState.value) {
+                    Object.assign(gameState.value, msg.payload);
+                } else {
+                    gameState.value = msg.payload;
                 }
-                break;
-            case 'ACTION_ERROR':
-                lastError.value = msg.payload.msg;
-                setTimeout(() => lastError.value = '', 3000);
-                break;
-        }
-    }
+                break;
+            case 'STATE_CHANGED':
+                if (gameState.value) {
+                    // 1. Update Phase & Giliran (Yang lama)
+                    gameState.value.phase = msg.payload.phase;
+                    gameState.value.activePlayer = msg.payload.activePlayer;
+                    // 2. [BARU] Update Data Lelang (Bid)
+                    // PENTING: Cek undefined biar gak nimpah data dgn kosong kalau server gak kirim
+                    if (msg.payload.currentBid !== undefined) {
+                        gameState.value.currentBid = msg.payload.currentBid;
+                    }
+                    if (msg.payload.bidWinner !== undefined) {
+                        gameState.value.bidWinner = msg.payload.bidWinner;
+                    }
+
+                    // 3. [BARU] Update Data Truf & Kartu
+                    if (msg.payload.trumpSuit !== undefined) {
+                        gameState.value.trumpSuit = msg.payload.trumpSuit;
+                    }
+                    if (msg.payload.isTrumpHidden !== undefined) {
+                        gameState.value.isTrumpHidden = msg.payload.isTrumpHidden;
+                    }
+                }
+                break;
+            case 'ACTION_ERROR':
+                lastError.value = msg.payload.msg;
+                setTimeout(() => lastError.value = '', 3000);
+                break;
+        }
+    }
 
     function bid(amount: number) {
         // Kirim dummy data bid dulu buat test
@@ -83,7 +105,9 @@ export const useGameStore = defineStore('game', () => {
         gameState, 
         lastError,
         phase, 
+        myPlayerId,
         connect, 
-        bid 
+        bid,
+        send
     };
 });

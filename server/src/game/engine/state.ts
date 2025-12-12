@@ -106,9 +106,12 @@ export class MatchState {
   }
 
   public playerPass(seatId: number): { success: boolean, msg?: string } {
+    console.log(`[DEBUG] playerPass called by Seat ${seatId}. Active is ${this.activePlayerIndex}. Phase is ${this.phase}`);
     if (this.phase !== 'BIDDING') return { success: false, msg: "Not bidding phase" };
-    if (this.activePlayerIndex !== seatId) return { success: false, msg: "Not your turn" };
-
+    if (this.activePlayerIndex !== seatId) {
+            console.log(`[DEBUG] REJECTED: Turn Mismatch. Request: ${seatId}, Active: ${this.activePlayerIndex}`);
+            return { success: false, msg: "Not your turn" };
+        }
     const player = this.players[seatId];
     
     if (player.passOverridesLeft > 0) {
