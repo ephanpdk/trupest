@@ -9,11 +9,10 @@ const inputMatch = ref('TEST-MATCH-001');
 const bidAmount = ref(8);
 
 const mySeatId = computed(() => {
-  if (game.myPlayerId === 'Player1') return 0;
-  if (game.myPlayerId === 'Bot1') return 1;
-  if (game.myPlayerId === 'Bot2') return 2;
-  if (game.myPlayerId === 'Bot3') return 3;
-  return -1; 
+  if (!game.gameState || !game.gameState.players) return -1;
+  
+  const me = game.gameState.players.find((p: any) => p.id === game.myPlayerId);
+  return me ? me.seatId : -1;
 });
 
 const isMyTurn = computed(() => {

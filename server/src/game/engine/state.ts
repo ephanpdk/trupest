@@ -29,6 +29,7 @@ export class MatchState {
   public currentBid: number;
   public bidWinner: number | null;
   public passCount: number;
+  public biddingTurnCount: number;
 
   constructor(config: GameConfig, playerIds: string[]) {
     this.config = config;
@@ -48,6 +49,7 @@ export class MatchState {
     this.currentBid = 0;
     this.bidWinner = null;
     this.passCount = 0;
+    this.biddingTurnCount = 0;
 
     this.players = playerIds.map((id, index) => ({
       id,
@@ -107,6 +109,7 @@ export class MatchState {
     this.passCount = 0; 
 
     console.log(`[BID] P${seatId} bids ${amount}`);
+    this.biddingTurnCount++;
     this.nextBiddingTurn();
     return { success: true };
   }
@@ -130,18 +133,18 @@ export class MatchState {
 
     console.log(`[BID] P${seatId} PASS`);
     this.passCount++;
+    this.biddingTurnCount++;
     this.nextBiddingTurn();
     return { success: true };
   }
 
   private nextBiddingTurn() {
-    if (this.currentBid === 0 && this.passCount >= 4) {
-        this.currentBid = 7; 
-        this.bidWinner = (this.dealerIndex + 1) % 4;
-        this.finishBidding();
-        return;
-    }
-    if (this.bidWinner !== null && (this.activePlayerIndex + 1) % 4 === this.bidWinner) {
+    if (this.biddingTurnCount >= 4) {
+                if (this.currentBid === 0) {
+            console.log("[BID] 4 Passes detected. Forcing Bid 7.");
+            this.currentBid = 7; 
+            this.bidWinner = (this.dealerIndex + 1) % 4;
+        }
         this.finishBidding();
         return;
     }
@@ -232,6 +235,15 @@ export class MatchState {
   public getPublicState(observerSeat: number) {
     return {
       phase: this.phase,
+      roomId: this.config.matchId,
+      players: this.players.map(p => ({
+        id: p.id,
+        name: p.name,
+        seatId: p.seatId,
+        isBot: p.isBot,
+        cardCount: p.hand.length, 
+        score: 0
+      })),
       dealer: this.dealerIndex,
       activePlayer: this.activePlayerIndex,
       trumpSuit: this.trumpSuit,
