@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { MatchState } from '../../game/engine/state';
 import { isEligibleBid8 } from '../../game/engine/bidding';
-import { Card } from '../../types/card';
+import { Card } from '../../../../shared/types';
 
 // Helper buat bikin tangan cepat
 const createHand = (codes: string[]): Card[] => {

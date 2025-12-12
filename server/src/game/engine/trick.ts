@@ -1,5 +1,5 @@
 // src/game/engine/trick.ts
-import { Card, Suit, Rank } from '../../types/card';
+import { Card, Suit, Rank } from '../../../../shared/types';
 
 // Rank Value mapping buat perbandingan (A paling tinggi)
 const RANK_VALUE: Record<Rank, number> = {

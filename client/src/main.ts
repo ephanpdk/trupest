@@ -1,12 +1,10 @@
 import { createApp } from 'vue'
-import { createPinia } from 'pinia'
+import './style.css'
 import App from './App.vue'
 
-const app = createApp(App)
-const pinia = createPinia()
+import { socketService } from './services/socket'
 
-// WAJIB: Pasang Pinia DULU
-app.use(pinia)
+// Jalankan koneksi
+socketService.connect();
 
-// BARU mount aplikasi
-app.mount('#app')
+createApp(App).mount('#app')

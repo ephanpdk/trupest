@@ -1,21 +1,27 @@
-// src/game/engine/state.ts
+// server/src/game/engine/state.ts
+
 import { Deck } from './deck';
-import { Player, MatchPhase, GameConfig } from '../../types/state';
-import { Card, Suit } from '../../types/card';
+
+// Import Internal Server Types (Player & Config tetap internal)
+import { Player, GameConfig } from '../../types/state';
+
+// UPDATE: Import Shared Types (Jembatan ke Client)
+// Kita gunakan relative path agar Node.js native bisa membacanya tanpa build tools tambahan
+import { Card, Suit, GamePhase } from '../../../../shared/types';
 import { getLegalMask, resolveTrick } from './trick';
 import { isEligibleBid8 } from './bidding';
 
 export class MatchState {
   public config: GameConfig;
   public players: Player[];
-  public phase: MatchPhase;
+  public phase: GamePhase; // Updated: Menggunakan GamePhase dari shared
   public deck: Deck;
   public roundNumber: number;
   public dealerIndex: number; 
 
   public activePlayerIndex: number; 
   public trumpSuit: Suit | null;    
-  public isTrumpHidden: boolean; // Day 6
+  public isTrumpHidden: boolean;
   public currentTrick: Card[];      
   public trickStarterIndex: number; 
   public trickScores: number[];     
@@ -26,7 +32,7 @@ export class MatchState {
 
   constructor(config: GameConfig, playerIds: string[]) {
     this.config = config;
-    this.phase = 'WAITING';
+    this.phase = 'WAITING'; // Value ini valid di GamePhase
     this.roundNumber = 1;
     this.deck = new Deck(config.seed);
     
@@ -34,7 +40,7 @@ export class MatchState {
     
     this.activePlayerIndex = 0;
     this.trumpSuit = null;
-    this.isTrumpHidden = false; // Init
+    this.isTrumpHidden = false;
     this.currentTrick = [];
     this.trickStarterIndex = 0;
     this.trickScores = [0, 0];
@@ -148,11 +154,11 @@ export class MatchState {
       console.log(`[STATE] Bidding Finished. Winner: P${this.bidWinner} with Bid ${this.currentBid}`);
   }
 
-  // --- TRUMP SELECTION (DAY 6) ---
+  // --- TRUMP SELECTION ---
 
   public playerSelectTrump(seatId: number, suit: Suit, hidden: boolean = false): { success: boolean, msg?: string } {
     if (this.phase !== 'TRUMP_SELECTION') return { success: false, msg: "Not trump selection phase" };
-    if (this.bidWinner !== seatId) return { success: false, msg: "Only declarer can select trump" }; // 
+    if (this.bidWinner !== seatId) return { success: false, msg: "Only declarer can select trump" }; 
 
     this.trumpSuit = suit;
     this.isTrumpHidden = hidden;
@@ -185,7 +191,7 @@ export class MatchState {
     const cardToPlay = player.hand[cardIndex];
 
     const leadSuit = this.currentTrick.length > 0 ? this.currentTrick[0].suit : null;
-    const mask = getLegalMask(player.hand, leadSuit); // [cite: 284]
+    const mask = getLegalMask(player.hand, leadSuit);
     
     if (!mask[cardIndex]) {
       return { success: false, msg: "Illegal Move: Must follow suit!" }; 
@@ -236,9 +242,9 @@ export class MatchState {
       bidWinner: this.bidWinner
     };
   }
+  
   // --- SCORING LOGIC ---
   
-  // Method ini dipanggil HANYA untuk testing atau saat phase == 'SCORING'
   public calculateScore(): { 
       team: number, 
       bid: number, 
@@ -270,4 +276,3 @@ export class MatchState {
     };
   }
 }
-

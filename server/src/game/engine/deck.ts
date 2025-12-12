@@ -1,5 +1,5 @@
 // src/game/engine/deck.ts
-import { Card, Suit, Rank } from '../../types/card';
+import { Card, Suit, Rank } from '../../../../shared/types';
 import { deterministicShuffle } from './shuffle';
 
 const SUITS: Suit[] = ['S', 'H', 'D', 'C'];

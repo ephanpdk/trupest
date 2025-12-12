@@ -1,5 +1,5 @@
 // src/game/engine/bidding.ts
-import { Card, Suit, Rank } from '../../types/card';
+import { Card, Suit, Rank } from '../../../../shared/types';
 
 // SRS 21.3 Constants
 const RANK_VALUE: Record<Rank, number> = {

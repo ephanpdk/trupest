@@ -1,21 +1,18 @@
-// src/types/state.d.ts
-import { Card } from './card';
+// Import dasar dari Shared
+import { Card, Suit, GamePhase } from '@shared/types'; // Menggunakan alias path
 
-// SRS 2.2 Phase & SRS 3.3 Match Lifecycle
-export type MatchPhase = 'WAITING' | 'DEALING' | 'BIDDING' | 'TRUMP_SELECTION' | 'TRICK' | 'SCORING' | 'FINISHED';
-
-// SRS 8.2 Player State Schema
+// Interface Player internal Server (lebih detail dari PlayerPublic)
 export interface Player {
   id: string;          // UUID / SocketID
   name: string;
-  seatId: number;      // 0-3 (Barat, Utara, Timur, Selatan)
-  hand: Card[];        // Kartu di tangan
+  seatId: number;      // 0-3
+  hand: Card[];        // Kartu asli
   isBot: boolean;
-  passOverridesLeft: number; // SRS 4.3.2 Anti-Pass Override limit
+  passOverridesLeft: number;
 }
 
 export interface GameConfig {
   matchId: string;
-  seed: string;        // SRS 4.1 Server Seed
+  seed: string;
   isRanked: boolean;
 }
