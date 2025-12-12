@@ -1,20 +1,16 @@
-// server/src/game/engine/state.ts
-
 import { Deck } from './deck';
-
-// Import Internal Server Types (Player & Config tetap internal)
 import { Player, GameConfig } from '../../types/state';
-
-// UPDATE: Import Shared Types (Jembatan ke Client)
-// Kita gunakan relative path agar Node.js native bisa membacanya tanpa build tools tambahan
 import { Card, Suit, GamePhase } from '../../../../shared/types';
-import { getLegalMask, resolveTrick } from './trick';
-import { isEligibleBid8 } from './bidding';
+
+import * as BiddingPhase from './phases/bidding';
+import * as TrumpPhase from './phases/trump';
+import * as TrickPhase from './phases/trick';
+import * as ScoringPhase from './phases/scoring';
 
 export class MatchState {
   public config: GameConfig;
   public players: Player[];
-  public phase: GamePhase; // Updated: Menggunakan GamePhase dari shared
+  public phase: GamePhase;
   public deck: Deck;
   public roundNumber: number;
   public dealerIndex: number; 
@@ -33,7 +29,7 @@ export class MatchState {
 
   constructor(config: GameConfig, playerIds: string[]) {
     this.config = config;
-    this.phase = 'WAITING'; // Value ini valid di GamePhase
+    this.phase = 'WAITING';
     this.roundNumber = 1;
     this.deck = new Deck(config.seed);
     
@@ -74,6 +70,7 @@ export class MatchState {
     this.currentBid = 0;
     this.bidWinner = null;
     this.passCount = 0;
+    this.biddingTurnCount = 0;
 
     const roundSeed = `${this.config.seed}:R${this.roundNumber}`;
     this.deck = new Deck(roundSeed);
@@ -95,141 +92,24 @@ export class MatchState {
     console.log(`[STATE] Round ${this.roundNumber} Bidding Started.`);
   }
 
-  // --- BIDDING ---
-
-  public playerBid(seatId: number, amount: number): { success: boolean, msg?: string } {
-    if (this.phase !== 'BIDDING') return { success: false, msg: "Not bidding phase" };
-    if (this.activePlayerIndex !== seatId) return { success: false, msg: "Not your turn" };
-    
-    if (amount < 8 || amount > 13) return { success: false, msg: "Bid must be 8-13" };
-    if (amount <= this.currentBid) return { success: false, msg: "Must bid higher than current" };
-
-    this.currentBid = amount;
-    this.bidWinner = seatId;
-    this.passCount = 0; 
-
-    console.log(`[BID] P${seatId} bids ${amount}`);
-    this.biddingTurnCount++;
-    this.nextBiddingTurn();
-    return { success: true };
+  public playerBid(seatId: number, amount: number) {
+      return BiddingPhase.handlePlayerBid(this, seatId, amount);
   }
 
-  public playerPass(seatId: number): { success: boolean, msg?: string } {
-    console.log(`[DEBUG] playerPass called by Seat ${seatId}. Active is ${this.activePlayerIndex}. Phase is ${this.phase}`);
-    if (this.phase !== 'BIDDING') return { success: false, msg: "Not bidding phase" };
-    if (this.activePlayerIndex !== seatId) {
-            console.log(`[DEBUG] REJECTED: Turn Mismatch. Request: ${seatId}, Active: ${this.activePlayerIndex}`);
-            return { success: false, msg: "Not your turn" };
-        }
-    const player = this.players[seatId];
-    
-    if (player.passOverridesLeft > 0) {
-        console.log(`[BID] P${seatId} uses PASS OVERRIDE`);
-    } else {
-        if (this.currentBid === 0 && isEligibleBid8(player.hand)) {
-            return { success: false, msg: "BID_FORCED_MIN_8: Hand too strong to pass!" };
-        }
-    }
-
-    console.log(`[BID] P${seatId} PASS`);
-    this.passCount++;
-    this.biddingTurnCount++;
-    this.nextBiddingTurn();
-    return { success: true };
+  public playerPass(seatId: number) {
+      return BiddingPhase.handlePlayerPass(this, seatId);
   }
 
-  private nextBiddingTurn() {
-    if (this.biddingTurnCount >= 4) {
-                if (this.currentBid === 0) {
-            console.log("[BID] 4 Passes detected. Forcing Bid 7.");
-            this.currentBid = 7; 
-            this.bidWinner = (this.dealerIndex + 1) % 4;
-        }
-        this.finishBidding();
-        return;
-    }
-    this.activePlayerIndex = (this.activePlayerIndex + 1) % 4;
+  public playerSelectTrump(seatId: number, suit: Suit, hidden: boolean = false) {
+      return TrumpPhase.handleSelectTrump(this, seatId, suit, hidden);
   }
 
-  private finishBidding() {
-      this.phase = 'TRUMP_SELECTION';
-      if (this.bidWinner !== null) this.activePlayerIndex = this.bidWinner;
-      console.log(`[STATE] Bidding Finished. Winner: P${this.bidWinner} with Bid ${this.currentBid}`);
+  public playCard(seatId: number, cardIndex: number) {
+      return TrickPhase.handlePlayCard(this, seatId, cardIndex);
   }
 
-  // --- TRUMP SELECTION ---
-
-  public playerSelectTrump(seatId: number, suit: Suit, hidden: boolean = false): { success: boolean, msg?: string } {
-    if (this.phase !== 'TRUMP_SELECTION') return { success: false, msg: "Not trump selection phase" };
-    if (this.bidWinner !== seatId) return { success: false, msg: "Only declarer can select trump" }; 
-
-    this.trumpSuit = suit;
-    this.isTrumpHidden = hidden;
-
-    console.log(`[TRUMP] P${seatId} selects ${suit} ${hidden ? '(HIDDEN)' : '(OPEN)'}`);
-    this.startTrickPhase();
-
-    return { success: true };
-  }
-
-  private startTrickPhase() {
-      this.phase = 'TRICK';
-      // Declarer leads first trick
-      if (this.bidWinner !== null) {
-          this.activePlayerIndex = this.bidWinner;
-          this.trickStarterIndex = this.bidWinner;
-      }
-      console.log(`[STATE] Phase TRICK started. Lead: P${this.activePlayerIndex}`);
-  }
-
-  // --- TRICK EXECUTION ---
-
-  public playCard(seatId: number, cardIndex: number): { success: boolean, msg?: string } {
-    if (this.phase !== 'TRICK') return { success: false, msg: "Not trick phase" };
-    if (this.activePlayerIndex !== seatId) return { success: false, msg: "Not your turn" };
-
-    const player = this.players[seatId];
-    if (cardIndex < 0 || cardIndex >= player.hand.length) return { success: false, msg: "Invalid card index" };
-
-    const cardToPlay = player.hand[cardIndex];
-
-    const leadSuit = this.currentTrick.length > 0 ? this.currentTrick[0].suit : null;
-    const mask = getLegalMask(player.hand, leadSuit);
-    
-    if (!mask[cardIndex]) {
-      return { success: false, msg: "Illegal Move: Must follow suit!" }; 
-    }
-
-    player.hand.splice(cardIndex, 1);
-    this.currentTrick.push(cardToPlay);
-    console.log(`[GAME] P${seatId} plays ${cardToPlay.rank}${cardToPlay.suit}`);
-
-    if (this.currentTrick.length === 4) {
-       this.resolveCurrentTrick();
-    } else {
-       this.activePlayerIndex = (this.activePlayerIndex + 1) % 4;
-    }
-
-    return { success: true };
-  }
-
-  private resolveCurrentTrick() {
-    const winnerOffset = resolveTrick(this.currentTrick, this.trumpSuit);
-    const winnerSeat = (this.trickStarterIndex + winnerOffset) % 4;
-
-    console.log(`[TRICK] Winner: Player ${winnerSeat} (Card: ${this.currentTrick[winnerOffset].rank}${this.currentTrick[winnerOffset].suit})`);
-
-    const winningTeam = winnerSeat % 2; 
-    this.trickScores[winningTeam]++;
-
-    this.currentTrick = [];
-    this.activePlayerIndex = winnerSeat;
-    this.trickStarterIndex = winnerSeat;
-
-    if (this.players[0].hand.length === 0) {
-      this.phase = 'SCORING'; 
-      console.log("[STATE] Round Finished.");
-    }
+  public calculateScore() {
+      return ScoringPhase.calculateScore(this);
   }
 
   public getPublicState(observerSeat: number) {
@@ -252,39 +132,6 @@ export class MatchState {
       myHand: this.players[observerSeat].hand,
       currentBid: this.currentBid,
       bidWinner: this.bidWinner
-    };
-  }
-  
-  // --- SCORING LOGIC ---
-  
-  public calculateScore(): { 
-      team: number, 
-      bid: number, 
-      tricksWon: number, 
-      isSuccess: boolean, 
-      score: number 
-  } {
-    if (this.bidWinner === null) {
-        throw new Error("Cannot calculate score: No Bid Winner defined.");
-    }
-
-    const declaringTeam = this.bidWinner % 2; // 0 (P1/P3) or 1 (P2/P4)
-    const bidVal = this.currentBid;
-    const tricksGot = this.trickScores[declaringTeam];
-    
-    // LOGIC MATEMATIKA:
-    // Jika dapet trick >= bid, maka Skor = Bid * 10
-    // Jika kurang (jebol), maka Skor = -(Bid * 10)
-    
-    const isSuccess = tricksGot >= bidVal;
-    const finalScore = isSuccess ? (bidVal * 10) : -(bidVal * 10);
-
-    return {
-        team: declaringTeam,
-        bid: bidVal,
-        tricksWon: tricksGot,
-        isSuccess: isSuccess,
-        score: finalScore
     };
   }
 }
