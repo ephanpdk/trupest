@@ -1,10 +1,14 @@
 import { Deck } from './deck';
 import { Player, GameConfig } from '../../types/state';
 import { Card, Suit, GamePhase } from '../../../../shared/types';
+
+// Import Logic Modul (Facade)
 import * as BiddingPhase from './phases/bidding';
 import * as TrumpPhase from './phases/trump';
 import * as TrickPhase from './phases/trick';
 import * as ScoringPhase from './phases/scoring';
+
+// Import AI Orchestrator
 import { processBotTurns } from '../ai/orchestrator';
 
 export class MatchState {
@@ -14,12 +18,14 @@ export class MatchState {
   public deck: Deck;
   public roundNumber: number;
   public dealerIndex: number; 
+
   public activePlayerIndex: number; 
   public trumpSuit: Suit | null;    
   public isTrumpHidden: boolean;
   public currentTrick: Card[];      
   public trickStarterIndex: number; 
   public trickScores: number[];     
+
   public currentBid: number;
   public bidWinner: number | null;
   public passCount: number;
@@ -30,17 +36,22 @@ export class MatchState {
     this.phase = 'WAITING';
     this.roundNumber = 1;
     this.deck = new Deck(config.seed);
+    
     this.dealerIndex = 0; 
+    
     this.activePlayerIndex = 0;
     this.trumpSuit = null;
     this.isTrumpHidden = false;
     this.currentTrick = [];
     this.trickStarterIndex = 0;
     this.trickScores = [0, 0];
+
     this.currentBid = 0;
     this.bidWinner = null;
     this.passCount = 0;
     this.biddingTurnCount = 0;
+
+    // Inisialisasi Player
     this.players = playerIds.map((id, index) => ({
       id,
       name: `Player ${index + 1}`,
@@ -48,43 +59,55 @@ export class MatchState {
       hand: [],
       isBot: id.startsWith('Bot'),
       passOverridesLeft: 1,
-      score: 0
+      score: 0 // Nilai awal skor di memori server
     }));
   }
 
-  // --- DEBUG TRIGGER ---
+  // --- HELPER UNTUK AI ---
+  // Dipanggil setiap kali state berubah agar Bot bisa merespons
   public triggerAutomation() {
-      // LOG PENTING: Cek apakah State di sini sinkron dengan Trick.ts
-      if (this.phase === 'TRICK') {
-          console.log(`[STATE SYNC CHECK] Before AI Turn, Table has: ${this.currentTrick.length} cards`);
+      // LOG PENTING: Cek sinkronisasi state
+      if (this.phase === 'TRICK' && this.currentTrick.length > 0) {
+          // console.log(`[STATE CHECK] Table has: ${this.currentTrick.length} cards`);
       }
       processBotTurns(this);
   }
 
   public startRound(): void {
     this.phase = 'DEALING';
+    
     this.activePlayerIndex = (this.dealerIndex + 1) % 4;
     this.trickStarterIndex = this.activePlayerIndex;
     this.trumpSuit = null;
     this.isTrumpHidden = false;
     this.currentTrick = [];
     this.trickScores = [0, 0];
+
     this.currentBid = 0;
     this.bidWinner = null;
     this.passCount = 0;
     this.biddingTurnCount = 0;
+
     const roundSeed = `${this.config.seed}:R${this.roundNumber}`;
     this.deck = new Deck(roundSeed);
+
     this.players.forEach(p => p.hand = []);
+
     let currentSeat = (this.dealerIndex + 1) % 4;
+    
     for (let i = 0; i < 4; i++) {
       const cards = this.deck.deal(13);
       const player = this.players.find(p => p.seatId === currentSeat);
-      if (player) { player.hand = cards; }
+      if (player) {
+        player.hand = cards;
+      }
       currentSeat = (currentSeat + 1) % 4;
     }
+
     this.phase = 'BIDDING';
     console.log(`[STATE] Round ${this.roundNumber} Bidding Started.`);
+    
+    // Trigger bot jika pemain pertama adalah Bot
     this.triggerAutomation();
   }
 
@@ -118,10 +141,14 @@ export class MatchState {
 
   public getPublicState(observerSeat: number) {
     // --- CCTV DEBUGGING ---
-    // Log ini WAJIB muncul. Kalau tidak, berarti handler server tidak manggil ini.
-    console.log(`[DEBUG STATE] getPublicState called for P${observerSeat}. Table Cards: ${this.currentTrick.length}`);
+    // Log ini memastikan kita tahu apa yang dikirim ke Client
     if (this.currentTrick.length > 0) {
-        console.log(`[DEBUG STATE] Table Content:`, JSON.stringify(this.currentTrick));
+        console.log(`[DEBUG STATE] Sending State to Client. Table has ${this.currentTrick.length} cards.`);
+        console.log(`[DEBUG STATE] Content:`, JSON.stringify(this.currentTrick));
+    } else {
+         if (this.phase === 'TRICK') {
+             console.log(`[DEBUG STATE] Sending State to Client. Table is EMPTY (Phase: TRICK).`);
+         }
     }
     // ----------------------
 
@@ -134,7 +161,11 @@ export class MatchState {
         seatId: p.seatId,
         isBot: p.isBot,
         cardCount: p.hand.length, 
-        score: 0
+        
+        // --- FIX PENTING ---
+        // Mengirim nilai skor asli dari memori server ke client
+        score: p.score 
+        // -------------------
       })),
       dealer: this.dealerIndex,
       activePlayer: this.activePlayerIndex,
