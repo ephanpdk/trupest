@@ -1,65 +1,59 @@
+// client/src/services/socket.ts
+
 import { reactive } from 'vue';
-import type { ClientEvents } from '@shared/types';
-import { useGameStore } from '../stores/game';
 
-const WS_URL = 'ws://localhost:3000/game';
-
+// State global untuk status koneksi
 export const socketState = reactive({
-    isConnected: false,
-    lastError: null as string | null,
-    latency: 0
+  isConnected: false
 });
 
 class SocketService {
-    public socket: WebSocket | null = null;
+  public socket: WebSocket | null = null;
+  // Callback function yang akan diisi oleh Store
+  public onMessage: ((event: any) => void) | null = null; 
 
-    connect() {
-        if (this.socket && (this.socket.readyState === WebSocket.OPEN || this.socket.readyState === WebSocket.CONNECTING)) return;
+  connect() {
+    // Ganti URL sesuai environment (Localhost)
+    const wsUrl = `ws://${window.location.hostname}:3000/game`;
+    console.log(`🔌 Connecting to ${wsUrl}...`);
 
-        console.log(`🔌 Connecting to ${WS_URL}...`);
-        this.socket = new WebSocket(WS_URL);
+    this.socket = new WebSocket(wsUrl);
 
-        this.socket.onopen = () => {
-            console.log('✅ WS Connected');
-            socketState.isConnected = true;
-            socketState.lastError = null;
-        };
+    this.socket.onopen = () => {
+      console.log('✅ WebSocket Connected');
+      socketState.isConnected = true;
+    };
 
-        this.socket.onclose = (event) => {
-            console.log('❌ WS Disconnected', event.code);
-            socketState.isConnected = false;
-        };
-
-        this.socket.onerror = (error) => {
-            console.error('🔥 WS Error', error);
-            socketState.lastError = "Connection Error";
-        };
-
-        this.socket.onmessage = (event) => {
-            try {
-                const data = JSON.parse(event.data);
-                const gameStore = useGameStore(); 
-                gameStore.handleServerEvent(data);
-            } catch (err) {
-                console.error('Invalid JSON', event.data);
-            }
-        };
-    }
-
-    send<K extends keyof ClientEvents & string>(type: K, payload: ClientEvents[K]) {
-        if (!this.socket || this.socket.readyState !== WebSocket.OPEN) return;
-        
-        const message = JSON.stringify({ type, payload });
-        this.socket.send(message);
-        console.log(`📤 Sent [${type}]`, payload);
-    }
-
-    disconnect() {
-        if (this.socket) {
-            this.socket.close();
-            this.socket = null;
+    this.socket.onmessage = (event) => {
+      try {
+        const parsed = JSON.parse(event.data);
+        // Jika ada yang mendengar (Store), kirim datanya
+        if (this.onMessage) {
+            this.onMessage(parsed);
         }
+      } catch (e) {
+        console.error('Socket Parse Error:', e);
+      }
+    };
+
+    this.socket.onclose = () => {
+      console.log('❌ WebSocket Disconnected');
+      socketState.isConnected = false;
+      this.socket = null;
+    };
+
+    this.socket.onerror = (err) => {
+      console.error('WebSocket Error:', err);
+    };
+  }
+
+  send(type: string, payload: any) {
+    if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+      this.socket.send(JSON.stringify({ type, payload }));
+    } else {
+      console.warn('⚠️ Cannot send message, socket not open');
     }
+  }
 }
 
 export const socketService = new SocketService();

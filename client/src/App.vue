@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useGameStore } from './stores/game';
 import { ref, computed } from 'vue';
+import SimpleBoard from './components/SimpleBoard.vue'; // <--- 1. IMPORT KOMPONEN BARU
 
 const game = useGameStore();
 const inputName = ref('Player1');
@@ -90,40 +91,43 @@ const selectTrump = (suit: string) => {
       </button>
     </div>
 
-    <div v-else class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+    <div v-else class="flex flex-col gap-8">
       
-      <div class="space-y-6">
-        <div class="p-5 bg-gray-800 rounded-lg border border-gray-700">
-          <h2 class="text-xl text-blue-400 mb-4 border-b border-gray-700 pb-2">Game Info</h2>
-          
-          <div class="grid grid-cols-2 gap-4">
-            <div>
-              <p class="text-gray-400 text-sm">Current Phase</p>
-              <p class="font-bold text-yellow-400 text-lg">{{ game.phase }}</p>
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        
+        <div class="space-y-6">
+            <div class="p-5 bg-gray-800 rounded-lg border border-gray-700">
+              <h2 class="text-xl text-blue-400 mb-4 border-b border-gray-700 pb-2">Game Info</h2>
+              
+              <div class="grid grid-cols-2 gap-4">
+                <div>
+                  <p class="text-gray-400 text-sm">Current Phase</p>
+                  <p class="font-bold text-yellow-400 text-lg">{{ game.phase }}</p>
+                </div>
+                <div>
+                  <p class="text-gray-400 text-sm">Active Turn</p>
+                  <p class="font-bold text-white text-lg">Seat {{ game.gameState.activePlayer }}</p>
+                </div>
+                <div>
+                  <p class="text-gray-400 text-sm">Highest Bid</p>
+                  <p class="font-bold text-green-400 text-lg">{{ game.gameState.currentBid || 0 }}</p>
+                </div>
+                <div>
+                  <p class="text-gray-400 text-sm">Bid Winner</p>
+                  <p class="font-bold text-white text-lg">{{ game.gameState.bidWinner !== undefined && game.gameState.bidWinner !== null ? 'Seat ' + game.gameState.bidWinner : '-' }}</p>
+                </div>
+                <div v-if="game.gameState.trumpSuit">
+                  <p class="text-gray-400 text-sm">Trump Suit</p>
+                  <p class="font-bold text-red-400 text-2xl">{{ game.gameState.trumpSuit }}</p>
+                </div>
+              </div>
             </div>
-            <div>
-              <p class="text-gray-400 text-sm">Active Turn</p>
-              <p class="font-bold text-white text-lg">Seat {{ game.gameState.activePlayer }}</p>
-            </div>
-            <div>
-              <p class="text-gray-400 text-sm">Highest Bid</p>
-              <p class="font-bold text-green-400 text-lg">{{ game.gameState.currentBid || 0 }}</p>
-            </div>
-            <div>
-              <p class="text-gray-400 text-sm">Bid Winner</p>
-              <p class="font-bold text-white text-lg">{{ game.gameState.bidWinner !== undefined ? 'Seat ' + game.gameState.bidWinner : '-' }}</p>
-            </div>
-            <div v-if="game.gameState.trumpSuit">
-              <p class="text-gray-400 text-sm">Trump Suit</p>
-              <p class="font-bold text-red-400 text-2xl">{{ game.gameState.trumpSuit }}</p>
-            </div>
-          </div>
         </div>
 
-        <div class="p-5 bg-gray-800 rounded-lg border border-gray-700 relative overflow-hidden">
+        <div class="p-5 bg-gray-800 rounded-lg border border-gray-700 relative overflow-hidden h-fit">
           <h2 class="text-xl text-purple-400 mb-4 border-b border-gray-700 pb-2">Player Actions</h2>
           
-          <div v-if="!isMyTurn && game.phase !== 'TRUMP_SELECTION'" class="absolute inset-0 bg-black/60 z-10 flex items-center justify-center backdrop-blur-sm">
+          <div v-if="!isMyTurn && game.phase !== 'TRUMP_SELECTION' && game.phase !== 'TRICK'" class="absolute inset-0 bg-black/60 z-10 flex items-center justify-center backdrop-blur-sm">
              <div class="bg-yellow-900/80 border border-yellow-600 text-yellow-200 px-6 py-3 rounded-full font-bold animate-pulse">
                ⏳ Menunggu giliran Seat {{ game.gameState.activePlayer }}...
              </div>
@@ -156,7 +160,6 @@ const selectTrump = (suit: string) => {
                     <button @click="selectTrump('D')" class="bg-red-900 hover:bg-red-800 p-4 rounded-lg text-3xl transition border border-red-700 shadow-lg hover:scale-110">♦️</button>
                  </div>
              </div>
-             
              <div v-else class="flex flex-col items-center justify-center p-8 bg-gray-900/50 rounded border border-gray-700 border-dashed">
                 <div class="animate-spin text-4xl mb-4">🔮</div>
                 <p class="text-gray-400 italic">Menunggu Seat {{ game.gameState.bidWinner }} memilih Truf...</p>
@@ -165,22 +168,28 @@ const selectTrump = (suit: string) => {
 
           <div v-else-if="game.phase === 'TRICK'" class="text-center space-y-4">
              <div class="p-4 bg-green-900/20 border border-green-800 rounded">
-                <p class="text-green-400 font-bold">FASE MAIN KARTU DIMULAI!</p>
+                <p class="text-green-400 font-bold">SILAKAN LIHAT PAPAN DI BAWAH</p>
                 <p class="text-sm text-gray-400 mt-1">Lead: Seat {{ game.gameState.activePlayer }}</p>
              </div>
-             
-             <div v-if="!isMyTurn" class="bg-yellow-900/30 border border-yellow-600 text-yellow-200 px-4 py-2 rounded text-sm">
-                Menunggu lawan jalan...
-             </div>
           </div>
-
+          
           <div v-else class="text-gray-500 italic text-center">
             Menunggu update server...
           </div>
         </div>
+
       </div>
 
-      <div class="p-4 bg-black rounded-lg border border-gray-800 h-[500px] overflow-auto text-xs font-mono">
+      <div v-if="game.phase === 'TRICK'" class="w-full">
+         <SimpleBoard 
+           :gameState="game.gameState"
+           :playerId="game.myPlayerId"
+           :matchId="inputMatch"
+           :socket="game.socket"
+         />
+      </div>
+
+      <div class="p-4 bg-black rounded-lg border border-gray-800 h-[300px] overflow-auto text-xs font-mono">
         <div class="text-gray-500 mb-2 sticky top-0 bg-black pb-2 border-b border-gray-800">Server State (JSON)</div>
         <pre class="text-green-400">{{ game.gameState }}</pre>
       </div>

@@ -1,3 +1,5 @@
+// client/src/stores/game.ts
+
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import { socketService, socketState } from '../services/socket';
@@ -10,13 +12,19 @@ export const useGameStore = defineStore('game', () => {
 
   const isConnected = computed(() => socketState.isConnected);
   const phase = computed(() => gameState.value?.phase || 'LOBBY');
+  
+  // Ekspos socket raw agar bisa dipakai oleh SimpleBoard.vue
+  const socket = computed(() => socketService.socket);
 
   function connect(matchId: string, playerName: string) {
     myPlayerId.value = playerName;
     
-    if (!socketService.socket?.readyState) {
+    // Hubungkan logic penerimaan pesan
+    socketService.onMessage = handleServerEvent;
+
+    if (!socketService.socket || socketService.socket.readyState !== WebSocket.OPEN) {
         socketService.connect();
-        // Delay sedikit memastikan koneksi terbuka
+        // Delay sedikit memastikan koneksi terbuka sebelum join
         setTimeout(() => sendJoin(matchId, playerName), 500);
     } else {
         sendJoin(matchId, playerName);
@@ -24,17 +32,16 @@ export const useGameStore = defineStore('game', () => {
   }
 
   function sendJoin(matchId: string, playerName: string) {
-      // TypeScript sekarang senang karena JOIN_GAME sudah ada di shared/types
       socketService.send('JOIN_GAME', { matchId, playerId: playerName });
   }
 
   function send(type: string, payload: any) {
       if (type === 'PLAYER_ACTION') {
-          // TypeScript sekarang senang karena PLAYER_ACTION sudah ada di shared/types
           socketService.send('PLAYER_ACTION', payload);
       }
   }
 
+  // Fungsi ini dipanggil oleh socketService saat ada pesan masuk
   function handleServerEvent(event: any) {
       if (event.type === 'GAME_UPDATE') {
           gameState.value = event.payload;
@@ -48,5 +55,15 @@ export const useGameStore = defineStore('game', () => {
       }
   }
 
-  return { gameState, myPlayerId, isConnected, lastError, phase, connect, send, handleServerEvent };
+  return { 
+      gameState, 
+      myPlayerId, 
+      isConnected, 
+      lastError, 
+      phase, 
+      socket, 
+      connect, 
+      send, 
+      handleServerEvent 
+  };
 });
