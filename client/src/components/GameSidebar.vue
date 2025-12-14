@@ -31,6 +31,10 @@ const sendAction = (action: string, data: any = {}) => {
       <h3 class="text-slate-400 text-xs font-bold uppercase tracking-wider mb-4 border-b border-slate-700 pb-2">Status</h3>
       <div class="space-y-3">
         <div class="flex justify-between">
+          <span class="text-slate-400">Round</span>
+          <span class="font-mono text-yellow-400 bg-yellow-900/20 px-2 rounded">#{{ game.gameState?.roundNumber || 1 }}</span>
+        </div>
+        <div class="flex justify-between">
           <span class="text-slate-400">Phase</span>
           <span class="font-mono text-emerald-400 bg-emerald-900/20 px-2 rounded">{{ game.phase }}</span>
         </div>
@@ -86,13 +90,20 @@ const sendAction = (action: string, data: any = {}) => {
         <p class="text-slate-500 text-xs mt-1">Perhatikan meja di kanan 👉</p>
       </div>
 
-      <div v-else-if="game.phase === 'SCORING'" class="text-center py-4 space-y-3">
+      <div v-else-if="game.phase === 'SCORING' || game.phase === 'FINISHED'" class="text-center py-4 space-y-4">
         <div class="text-4xl">🏁</div>
         <div class="text-white font-bold">RONDE SELESAI</div>
         <div class="grid grid-cols-2 gap-2 text-xs bg-slate-900 p-2 rounded">
           <div>TEAM 1: <span class="text-cyan-400 font-bold">{{ (game.gameState?.players?.[0]?.score || 0) + (game.gameState?.players?.[2]?.score || 0) }}</span></div>
           <div>TEAM 2: <span class="text-cyan-400 font-bold">{{ (game.gameState?.players?.[1]?.score || 0) + (game.gameState?.players?.[3]?.score || 0) }}</span></div>
         </div>
+        <button 
+          v-if="game.phase === 'FINISHED'"
+          @click="sendAction('NEW_ROUND')" 
+          class="w-full bg-gradient-to-r from-emerald-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 text-white font-bold py-3 px-6 rounded-lg shadow-lg transform hover:scale-105 transition-all duration-200"
+        >
+          Main Lagi
+        </button>
       </div>
     </div>
 

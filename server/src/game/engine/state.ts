@@ -139,6 +139,20 @@ export class MatchState {
       return ScoringPhase.calculateScore(this);
   }
 
+  public startNextRound(): { success: boolean, msg?: string } {
+      if (this.phase !== 'FINISHED') {
+          return { success: false, msg: "Game is not finished yet" };
+      }
+
+      this.roundNumber++;
+      this.dealerIndex = (this.dealerIndex + 1) % 4;
+      
+      console.log(`[STATE] Starting Round ${this.roundNumber}. New Dealer: Seat ${this.dealerIndex}`);
+      
+      this.startRound();
+      return { success: true };
+  }
+
   public getPublicState(observerSeat: number) {
     // --- CCTV DEBUGGING ---
     // Log ini memastikan kita tahu apa yang dikirim ke Client
@@ -167,7 +181,8 @@ export class MatchState {
         score: p.score 
         // -------------------
       })),
-      dealer: this.dealerIndex,
+      roundNumber: this.roundNumber,
+      dealerIndex: this.dealerIndex,
       activePlayer: this.activePlayerIndex,
       trumpSuit: this.trumpSuit,
       isTrumpHidden: this.isTrumpHidden,

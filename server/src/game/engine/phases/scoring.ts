@@ -59,5 +59,6 @@ export function applyRoundScore(state: MatchState) {
         }
     });
 
-    // TODO: Di sini nanti kita reset untuk Round 2
+    state.phase = 'FINISHED';
+    console.log(`[STATE] Match phase set to FINISHED. Waiting for NEW_ROUND action.`);
 }
