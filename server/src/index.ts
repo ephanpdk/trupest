@@ -112,8 +112,11 @@ server.register(async function (fastify) {
                         }
                         result = match.playCard(player.seatId, cardIndex);
                     }
-                    else if (action === 'NEW_ROUND') {
+                    else if (action === 'NEW_ROUND' || action === 'NEXT_ROUND') {
                         result = match.startNextRound();
+                    }
+                    else if (action === 'PLAY_AGAIN') {
+                        result = match.resetGame();
                     }
 
                     // --- RESPON & BROADCAST ---
