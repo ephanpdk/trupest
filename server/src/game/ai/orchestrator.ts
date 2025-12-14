@@ -7,7 +7,7 @@ export function processBotTurns(state: MatchState) {
     let activePlayer = state.players[state.activePlayerIndex];
     let safetyCounter = 0;
 
-    while (activePlayer.isBot && state.phase !== 'WAITING' && state.phase !== 'SCORING' && safetyCounter < 100) {
+    while (activePlayer.isBot && state.phase !== 'WAITING' && state.phase !== 'SCORING' && state.phase !== 'FINISHED' && safetyCounter < 100) {
         console.log(`[AI] Processing turn for ${activePlayer.name} (Seat ${activePlayer.seatId}) in phase ${state.phase}...`);
         
         if (state.phase === 'BIDDING') {
