@@ -59,7 +59,7 @@ export interface ClientEvents {
     
     'PLAYER_ACTION': {
         matchId: string;
-        action: 'BID' | 'PASS' | 'SELECT_TRUMP' | 'PLAY_CARD';
+        action: 'BID' | 'PASS' | 'SELECT_TRUMP' | 'PLAY_CARD' | 'PLAY_AGAIN' | 'NEXT_ROUND';
         data: any; 
     };
 }

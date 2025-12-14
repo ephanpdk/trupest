@@ -100,6 +100,14 @@ export function registerGameHandlers(io: Server, socket: Socket) {
                         result = match.playCard(seatId, cardIndex);
                     }
                     break;
+                
+                case 'PLAY_AGAIN':
+                    result = match.resetGame();
+                    break;
+                
+                case 'NEXT_ROUND':
+                    result = match.startNextRound();
+                    break;
             }
 
             // --- RESPON BALIK KE PENGIRIM ---

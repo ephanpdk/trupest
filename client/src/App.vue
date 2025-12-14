@@ -3,6 +3,7 @@ import { useGameStore } from './stores/game';
 import GameLobby from './components/GameLobby.vue';
 import GameSidebar from './components/GameSidebar.vue';
 import SimpleBoard from './components/SimpleBoard.vue';
+import GameFinished from './components/GameFinished.vue';
 import { computed } from 'vue';
 
 const game = useGameStore();
@@ -54,6 +55,14 @@ const mySeatId = computed(() => {
           
           <SimpleBoard 
             v-if="game.phase === 'TRICK'" 
+            :gameState="game.gameState" 
+            :playerId="game.myPlayerId" 
+            :matchId="game.gameState.roomId" 
+            :socket="game.socket" 
+          />
+
+          <GameFinished 
+            v-if="game.phase === 'FINISHED'" 
             :gameState="game.gameState" 
             :playerId="game.myPlayerId" 
             :matchId="game.gameState.roomId" 

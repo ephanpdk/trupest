@@ -153,6 +153,43 @@ export class MatchState {
       return { success: true };
   }
 
+  // FITUR PLAY AGAIN: Reset seluruh game ke kondisi awal
+  public resetGame(): { success: boolean, msg?: string } {
+      if (this.phase !== 'FINISHED') {
+          return { success: false, msg: "Game belum selesai, tidak bisa restart" };
+      }
+
+      console.log(`[STATE] === PLAY AGAIN - RESETTING GAME ===`);
+      
+      // Reset semua state ke kondisi awal
+      this.roundNumber = 1;
+      this.dealerIndex = 0;
+      this.activePlayerIndex = 0;
+      this.trumpSuit = null;
+      this.isTrumpHidden = false;
+      this.currentTrick = [];
+      this.trickStarterIndex = 0;
+      this.trickScores = [0, 0];
+      this.currentBid = 0;
+      this.bidWinner = null;
+      this.passCount = 0;
+      this.biddingTurnCount = 0;
+
+      // Reset skor semua pemain
+      this.players.forEach(p => {
+          p.score = 0;
+          p.hand = [];
+          p.passOverridesLeft = 1;
+      });
+
+      console.log(`[STATE] Game reset complete. Starting fresh Round 1.`);
+      
+      // Mulai game baru - startRound akan broadcast state baru ke semua client
+      this.startRound();
+      
+      return { success: true };
+  }
+
   public getPublicState(observerSeat: number) {
     // --- CCTV DEBUGGING ---
     // Log ini memastikan kita tahu apa yang dikirim ke Client
