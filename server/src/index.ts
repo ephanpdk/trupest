@@ -177,7 +177,7 @@ server.register(async function (fastify) {
 
 const start = async () => {
   try {
-    const port = parseInt(process.env.PORT || '3000');
+    const port = 3001;
     await server.listen({ port, host: '0.0.0.0' });
     console.log(`🚀 Server running on port ${port} (WS Route: /game)`);
   } catch (err) {

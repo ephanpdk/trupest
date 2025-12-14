@@ -13,8 +13,8 @@ class SocketService {
   public onMessage: ((event: any) => void) | null = null; 
 
   connect() {
-    // Ganti URL sesuai environment (Localhost)
-    const wsUrl = `ws://${window.location.hostname}:3000/game`;
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}/game`;
     console.log(`🔌 Connecting to ${wsUrl}...`);
 
     this.socket = new WebSocket(wsUrl);
