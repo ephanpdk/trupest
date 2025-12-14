@@ -4,6 +4,8 @@ import GameLobby from './components/GameLobby.vue';
 import GameSidebar from './components/GameSidebar.vue';
 import SimpleBoard from './components/SimpleBoard.vue';
 import GameFinished from './components/GameFinished.vue';
+import HandPreview from './components/HandPreview.vue';
+import PlayerTurnIndicator from './components/PlayerTurnIndicator.vue';
 import { computed } from 'vue';
 
 const game = useGameStore();
@@ -47,12 +49,26 @@ const mySeatId = computed(() => {
 
       <div v-else class="grid grid-cols-1 lg:grid-cols-12 gap-6 animate-fade-in">
         
-        <div class="lg:col-span-3">
+        <div class="lg:col-span-3 space-y-4">
+          <PlayerTurnIndicator 
+            v-if="game.gameState?.players"
+            :players="game.gameState.players"
+            :activePlayer="game.gameState.activePlayer"
+            :mySeatId="mySeatId"
+            :myPlayerId="game.myPlayerId"
+            :bidWinner="game.gameState.bidWinner"
+            :roundNumber="game.gameState.roundNumber"
+          />
           <GameSidebar />
         </div>
 
         <div class="lg:col-span-9 flex flex-col gap-6">
           
+          <HandPreview 
+            v-if="game.gameState?.myHand && (game.phase === 'BIDDING' || game.phase === 'TRUMP_SELECTION')"
+            :hand="game.gameState.myHand"
+          />
+
           <SimpleBoard 
             v-if="game.phase === 'TRICK'" 
             :gameState="game.gameState" 
