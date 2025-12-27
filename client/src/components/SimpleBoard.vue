@@ -1,77 +1,95 @@
 <template>
-  <div class="p-6 border border-gray-700 rounded-xl bg-gray-800 shadow-2xl">
+  <div class="p-6 border border-white/10 rounded-xl bg-black/40 backdrop-blur-xl shadow-2xl relative overflow-hidden">
     
-    <div class="flex justify-between items-start mb-6 border-b border-gray-700 pb-4">
+    <!-- Header: Game Info -->
+    <div class="flex justify-between items-start mb-8 pb-4 border-b border-white/10 relative z-10">
       <div>
-        <h2 class="text-xl font-bold text-emerald-400 flex items-center gap-2">
+        <h2 class="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-cyan-400 flex items-center gap-2 drop-shadow-sm">
           <span>🃏</span> Meja Permainan
         </h2>
-        <div class="text-sm text-gray-400 mt-1 space-x-4">
-          <span>Trump: <strong class="text-xl ml-1" :class="getSuitColor(gameState.trumpSuit)">{{ getSuitSymbol(gameState.trumpSuit) }}</strong></span>
-          <span v-if="leadSuit">Lead Suit: <strong class="text-xl ml-1 border px-2 rounded bg-white" :class="getSuitColor(leadSuit)">{{ getSuitSymbol(leadSuit) }}</strong></span>
+        <div class="mt-2 flex items-center gap-4">
+          <div class="bg-white/5 border border-white/10 px-3 py-1.5 rounded-lg flex items-center gap-2">
+             <span class="text-slate-400 text-xs uppercase font-bold tracking-wider">Trump</span>
+             <strong class="text-xl" :class="getSuitColor(gameState.trumpSuit)">{{ getSuitSymbol(gameState.trumpSuit) }}</strong>
+          </div>
+          <div v-if="leadSuit" class="bg-white/5 border border-white/10 px-3 py-1.5 rounded-lg flex items-center gap-2">
+             <span class="text-slate-400 text-xs uppercase font-bold tracking-wider">Lead</span>
+             <strong class="text-xl" :class="getSuitColor(leadSuit)">{{ getSuitSymbol(leadSuit) }}</strong>
+          </div>
         </div>
       </div>
 
-      <div v-if="isMyTurn" class="animate-bounce bg-yellow-500 text-black font-bold px-4 py-2 rounded-full shadow-lg text-sm">
+      <div v-if="isMyTurn" class="animate-bounce bg-yellow-500 text-black font-bold px-6 py-2 rounded-full shadow-[0_0_20px_rgba(234,179,8,0.5)] text-sm border-2 border-yellow-300">
         🔔 GILIRAN ANDA!
       </div>
     </div>
 
-    <div class="mb-8 relative">
-      <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
-        <div class="w-full h-px bg-gray-700"></div>
+    <!-- Table Area (Trick) -->
+    <div class="mb-12 relative min-h-[200px] flex items-center justify-center">
+      <!-- Decor: Table Center -->
+      <div class="absolute inset-0 flex items-center justify-center opacity-10 pointer-events-none">
+        <div class="w-64 h-64 border-2 border-white rounded-full"></div>
+        <div class="absolute w-48 h-48 border border-white/50 rounded-full"></div>
       </div>
       
-      <h3 class="font-bold text-gray-400 mb-3 text-xs uppercase tracking-wider relative z-10 bg-gray-800 w-fit pr-2">Kartu di Meja</h3>
-      
-      <div class="flex gap-4 min-h-[140px] items-center justify-center bg-gray-900/50 rounded-xl border border-gray-700 p-4 border-dashed relative">
-        <div v-if="gameState.currentTrick.length === 0" class="text-gray-500 italic flex flex-col items-center">
-          <span class="text-4xl opacity-20">🃏</span>
-          <span class="mt-2">Menunggu kartu pertama...</span>
+      <div class="relative z-10 flex gap-4 items-center justify-center">
+        <div v-if="gameState.currentTrick.length === 0" class="flex flex-col items-center animate-pulse opacity-50">
+          <CardSlot className="border-dashed">
+            <span class="text-4xl opacity-50">🃏</span>
+          </CardSlot>
+          <span class="mt-3 text-sm font-mono text-slate-400">Menunggu kartu...</span>
         </div>
         
         <div 
           v-for="(card, i) in gameState.currentTrick" 
           :key="i"
-          class="relative w-20 h-32 bg-white rounded-lg shadow-xl flex flex-col items-center justify-between p-2 transform transition-all duration-300 hover:-translate-y-2 border-2 border-gray-300"
-          :class="getSuitColor(card.suit)"
+          class="relative animate-fade-in-up"
+          :style="{ animationDelay: `${i * 100}ms` }"
         >
-          <div class="text-xl font-bold self-start">{{ card.rank }}</div>
-          <div class="text-4xl absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 opacity-20 pointer-events-none">
-            {{ getSuitSymbol(card.suit) }}
-          </div>
-          <div class="text-2xl self-end">{{ getSuitSymbol(card.suit) }}</div>
-          
-          <div class="absolute -bottom-8 text-xs text-gray-400 font-mono bg-black/50 px-2 py-1 rounded">
-            Card {{ i + 1 }}
+          <PlayingCard :card="card" className="shadow-2xl" />
+          <div class="absolute -bottom-8 left-0 right-0 text-center">
+            <span class="text-[10px] uppercase font-bold text-slate-400 bg-black/60 px-2 py-0.5 rounded-full backdrop-blur-sm border border-white/10">Card {{ i + 1 }}</span>
           </div>
         </div>
       </div>
     </div>
 
-    <div>
-      <h3 class="font-bold text-gray-400 mb-3 text-xs uppercase tracking-wider flex justify-between">
-        <span>Kartu Tangan Anda</span>
-        <span class="text-emerald-500 text-[10px] normal-case bg-emerald-900/30 px-2 py-0.5 rounded border border-emerald-800">Sorted by Suit & Rank</span>
-      </h3>
+    <!-- Player Hand Area -->
+    <div class="relative pt-4">
+      <div class="flex justify-between items-center mb-4 px-4">
+        <h3 class="font-bold text-slate-300 text-sm uppercase tracking-wider">Kartu Tangan Anda</h3>
+        <span class="text-[10px] font-mono text-emerald-400 bg-emerald-500/10 px-2 py-1 rounded border border-emerald-500/20">Sorted by Suit & Rank</span>
+      </div>
       
-      <div class="flex flex-wrap gap-3 justify-center">
-        <button 
-          v-for="(item, index) in sortedHand" 
-          :key="index"
-          @click="playCard(item.originalIndex)"
-          :disabled="!isMyTurn"
-          class="relative w-20 h-32 bg-white rounded-lg shadow-md transition-all duration-200 flex flex-col items-center justify-between p-2 border-b-4 border-gray-300 group"
-          :class="[
-            getSuitColor(item.card.suit),
-            isMyTurn ? 'hover:-translate-y-4 hover:shadow-xl hover:border-blue-400 cursor-pointer' : 'opacity-70 cursor-not-allowed grayscale-[0.5]',
-            isValidMove(item.card) ? 'ring-2 ring-emerald-400' : (isMyTurn && leadSuit ? 'opacity-50' : '')
-          ]"
-        >
-          <div class="text-xl font-bold self-start">{{ item.card.rank }}</div>
-          <div class="text-4xl absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2">{{ getSuitSymbol(item.card.suit) }}</div>
-          <div class="text-2xl self-end">{{ getSuitSymbol(item.card.suit) }}</div>
-        </button>
+      <div class="relative min-h-[240px] flex items-center justify-center py-4 overflow-x-visible pb-10">
+        <div class="flex items-center" style="padding-left: 3rem;">
+            <button 
+              v-for="(item, index) in sortedHand" 
+              :key="index"
+              @click="playCard(item.originalIndex)"
+              :disabled="!isMyTurn || !isValidMove(item.card)"
+              class="relative -ml-16 first:ml-0 transition-all duration-300 group outline-none"
+              :class="[
+                 isMyTurn && isValidMove(item.card) ? 'hover:-translate-y-8 hover:z-30 cursor-pointer' : 'opacity-60 grayscale-[0.5] cursor-not-allowed hover:z-10',
+                 isValidMove(item.card) && isMyTurn ? 'z-10' : 'z-0'
+              ]"
+              :style="{ zIndex: index }"
+            >
+              <PlayingCard 
+                :card="item.card" 
+                :className="[
+                  'shadow-xl transition-shadow duration-300',
+                  isValidMove(item.card) && isMyTurn ? 'ring-2 ring-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.4)]' : ''
+                ].join(' ')" 
+              />
+              
+              <!-- Hover Label for Valid Moves -->
+              <div v-if="isMyTurn && isValidMove(item.card)" 
+                   class="absolute -top-10 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-emerald-500 text-white text-[10px] font-bold px-2 py-1 rounded shadow-lg pointer-events-none whitespace-nowrap z-50">
+                PLAY THIS
+              </div>
+            </button>
+        </div>
       </div>
     </div>
 
@@ -80,6 +98,9 @@
 
 <script setup lang="ts">
 import { computed } from 'vue';
+import PlayingCard from './game/PlayingCard.vue';
+import CardSlot from './game/CardSlot.vue';
+import { getSuitColor as getSuitColorHelper } from '../utils/cards';
 
 const props = defineProps<{
   gameState: any;
@@ -96,7 +117,6 @@ const RANK_VALUE: Record<string, number> = {
 };
 
 const sortedHand = computed(() => {
-  // 1. Safety Check: Pastikan data ada sebelum diproses
   if (!props.gameState || !props.gameState.myHand) return [];
   
   const mapped = props.gameState.myHand.map((card: any, index: number) => ({
@@ -104,20 +124,15 @@ const sortedHand = computed(() => {
     originalIndex: index
   }));
 
-  // Sort: Group by Suit, then by Rank (High to Low)
   return mapped.sort((a: any, b: any) => {
-    // Safety check dalam loop sort
     if (!a.card || !b.card) return 0;
 
     if (a.card.suit !== b.card.suit) {
-      // FIX ERROR TS2532: Gunakan '?? 0' (Nullish Coalescing)
-      // Ini memberitahu TS: "Kalau hasilnya undefined, pakailah angka 0"
       const valA = SUIT_ORDER[a.card.suit as keyof typeof SUIT_ORDER] ?? 0;
       const valB = SUIT_ORDER[b.card.suit as keyof typeof SUIT_ORDER] ?? 0;
       return valA - valB;
     }
     
-    // Safety check untuk Rank juga
     const rankA = RANK_VALUE[a.card.rank] ?? 0;
     const rankB = RANK_VALUE[b.card.rank] ?? 0;
     
@@ -125,16 +140,13 @@ const sortedHand = computed(() => {
   });
 });
 
-// --- LEAD SUIT LOGIC ---
 const leadSuit = computed(() => {
-  // Safety Chain (?.): Cek bertingkat agar tidak crash jika null
   if (props.gameState?.currentTrick?.length > 0) {
     return props.gameState.currentTrick[0]?.suit;
   }
   return null;
 });
 
-// --- HELPER VISUAL ---
 const isMyTurn = computed(() => {
   if (!props.gameState || !props.gameState.players) return false;
   const myPlayer = props.gameState.players.find((p: any) => p.id === props.playerId);
@@ -142,9 +154,11 @@ const isMyTurn = computed(() => {
   return props.gameState.activePlayer === myPlayer.seatId;
 });
 
+// Re-use helper or component
 const getSuitColor = (suit: string | null) => {
-  if (!suit) return 'text-gray-400';
-  return (suit === 'H' || suit === 'D') ? 'text-red-600' : 'text-slate-900';
+   if (!suit) return 'text-slate-400';
+   // Use helper but return Tailwind class directly for text
+   return (suit === 'H' || suit === 'D') ? 'text-red-500' : 'text-cyan-100'; 
 };
 
 const getSuitSymbol = (suit: string | null) => {
@@ -153,11 +167,10 @@ const getSuitSymbol = (suit: string | null) => {
   return map[suit] || suit;
 };
 
-// --- VALIDASI VISUAL (Highlight kartu legal) ---
 const isValidMove = (card: any) => {
   if (!isMyTurn.value) return false;
   if (!leadSuit.value) return true; 
-  if (!card) return false; // Safety
+  if (!card) return false; 
   
   const hasLeadSuit = props.gameState.myHand.some((c: any) => c.suit === leadSuit.value);
   
@@ -180,3 +193,13 @@ const playCard = (index: number) => {
   props.socket.send(JSON.stringify(payload));
 };
 </script>
+
+<style>
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-in-up {
+  animation: fadeInUp 0.5s ease-out backwards;
+}
+</style>

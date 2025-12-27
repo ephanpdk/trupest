@@ -18,26 +18,34 @@ const mySeatId = computed(() => {
 </script>
 
 <template>
-  <div class="min-h-screen bg-slate-900 text-slate-200 font-sans selection:bg-emerald-500 selection:text-white pb-20">
+  <div class="min-h-screen bg-gradient-to-br from-slate-950 via-blue-950 to-slate-950 text-slate-200 font-sans selection:bg-emerald-500 selection:text-white pb-20 relative overflow-hidden">
     
-    <nav class="bg-slate-800 border-b border-slate-700 px-6 py-4 flex justify-between items-center shadow-lg sticky top-0 z-50">
+    <!-- Background Effects -->
+    <div class="absolute inset-0 opacity-10 pointer-events-none">
+        <div
+          class="absolute inset-0"
+          style="background-image: linear-gradient(0deg, transparent 24%, rgba(68, 107, 207, .05) 25%, rgba(68, 107, 207, .05) 26%, transparent 27%, transparent 74%, rgba(68, 107, 207, .05) 75%, rgba(68, 107, 207, .05) 76%, transparent 77%, transparent), linear-gradient(90deg, transparent 24%, rgba(68, 107, 207, .05) 25%, rgba(68, 107, 207, .05) 26%, transparent 27%, transparent 74%, rgba(68, 107, 207, .05) 75%, rgba(68, 107, 207, .05) 76%, transparent 77%, transparent); background-size: 50px 50px;"
+        ></div>
+    </div>
+
+    <nav class="bg-black/30 backdrop-blur-md border-b border-white/10 px-6 py-4 flex justify-between items-center shadow-lg sticky top-0 z-50">
       <div class="flex items-center gap-3">
-        <div class="w-8 h-8 bg-gradient-to-tr from-emerald-500 to-cyan-500 rounded-lg flex items-center justify-center font-bold text-slate-900">T</div>
-        <h1 class="text-xl font-bold tracking-tight text-white">TRUPEST <span class="text-slate-500 text-xs font-normal ml-1">Beta</span></h1>
+        <div class="w-8 h-8 bg-gradient-to-tr from-emerald-500 to-cyan-500 rounded-lg flex items-center justify-center font-bold text-slate-900 shadow-lg shadow-emerald-500/20">T</div>
+        <h1 class="text-xl font-bold tracking-tight text-white drop-shadow-sm">TRUPEST <span class="text-slate-400 text-xs font-normal ml-1 border border-slate-600 rounded px-1">Beta</span></h1>
       </div>
       <div class="flex items-center gap-4">
-        <div class="flex items-center gap-2 px-3 py-1 bg-slate-900 rounded-full border border-slate-700">
+        <div class="flex items-center gap-2 px-3 py-1 bg-black/40 rounded-full border border-white/10 shadow-inner">
           <div :class="`w-2 h-2 rounded-full ${game.isConnected ? 'bg-emerald-500 shadow-[0_0_10px_#10b981]' : 'bg-red-500'}`"></div>
-          <span class="text-xs font-mono">{{ game.isConnected ? 'ONLINE' : 'OFFLINE' }}</span>
+          <span class="text-xs font-mono font-bold text-slate-300">{{ game.isConnected ? 'ONLINE' : 'OFFLINE' }}</span>
         </div>
         <div v-if="game.isConnected && game.gameState" class="text-xs text-right">
           <div class="font-bold text-white">{{ game.myPlayerId }}</div>
-          <div class="text-slate-500">Seat {{ mySeatId }}</div>
+          <div class="text-slate-400">Seat {{ mySeatId }}</div>
         </div>
       </div>
     </nav>
 
-    <div class="max-w-7xl mx-auto p-6">
+    <div class="max-w-7xl mx-auto p-6 relative z-10">
       
       <div v-if="game.lastError" class="fixed top-24 right-6 z-50 bg-red-500 text-white px-6 py-3 rounded-lg shadow-xl animate-bounce font-bold">
         ⚠️ {{ game.lastError }}

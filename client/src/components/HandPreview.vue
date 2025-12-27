@@ -1,42 +1,41 @@
 <template>
-  <div class="p-4 border border-gray-700 rounded-xl bg-gray-800 shadow-lg">
-    <div class="flex justify-between items-center mb-4">
-      <h3 class="text-lg font-bold text-emerald-400 flex items-center gap-2">
-        <span>🃏</span> Kartu Tangan Anda
-      </h3>
-      <span class="text-xs text-gray-500 bg-gray-900 px-2 py-1 rounded">{{ totalCards }} kartu</span>
-    </div>
+  <div class="space-y-6">
+    <!-- Existing Summary Panel -->
+    <div class="p-4 border border-white/10 rounded-xl bg-black/40 backdrop-blur-md shadow-lg">
+      <div class="flex justify-between items-center mb-4">
+        <h3 class="text-lg font-bold text-emerald-400 flex items-center gap-2">
+          <span>🃏</span> Kartu Tangan Anda
+        </h3>
+        <span class="text-xs text-slate-400 bg-white/5 px-2 py-1 rounded border border-white/10">{{ totalCards }} kartu</span>
+      </div>
 
-    <div class="grid grid-cols-4 gap-2 mb-4">
-      <div v-for="suit in suits" :key="suit.code" 
-           class="bg-gray-900/50 rounded-lg p-3 border border-gray-700">
-        <div class="flex items-center justify-between mb-2">
-          <span class="text-2xl" :class="suit.color">{{ suit.symbol }}</span>
-          <span class="text-xs font-bold text-gray-400">{{ getCountBySuit(suit.code) }}</span>
-        </div>
-        <div class="flex flex-wrap gap-1">
-          <span 
-            v-for="card in getCardsBySuit(suit.code)" 
-            :key="card.rank"
-            class="text-xs font-bold px-1.5 py-0.5 rounded"
-            :class="suit.code === 'H' || suit.code === 'D' ? 'bg-red-100 text-red-600' : 'bg-gray-200 text-gray-800'"
-          >
-            {{ card.rank }}
-          </span>
-          <span v-if="getCountBySuit(suit.code) === 0" class="text-gray-600 text-xs">-</span>
+      <div class="grid grid-cols-4 gap-2">
+        <div v-for="suit in suits" :key="suit.code" 
+             class="bg-white/5 rounded-lg p-3 border border-white/10 transition hover:bg-white/10">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-2xl drop-shadow-sm" :class="suit.color">{{ suit.symbol }}</span>
+            <span class="text-xs font-bold text-slate-300">{{ getCountBySuit(suit.code) }}</span>
+          </div>
+          <div class="flex flex-wrap gap-1">
+            <span v-if="getCountBySuit(suit.code) === 0" class="text-slate-600 text-xs">-</span>
+            <div v-else class="text-[10px] font-mono text-slate-400">
+               {{ getCardsBySuit(suit.code).map(c => c.rank).join(', ') }}
+            </div>
+          </div>
         </div>
       </div>
     </div>
 
-    <div class="bg-gray-900/30 rounded-lg p-3 border border-gray-700">
-      <div class="text-xs text-gray-500 mb-2">Ringkasan Suit:</div>
-      <div class="flex justify-around text-center">
-        <div v-for="suit in suits" :key="suit.code" class="flex flex-col items-center">
-          <span class="text-xl" :class="suit.color">{{ suit.symbol }}</span>
-          <span class="text-sm font-bold text-white">{{ getCountBySuit(suit.code) }}</span>
-          <div class="text-[10px] text-gray-500">
-            {{ getHighCard(suit.code) }}
-          </div>
+    <!-- Visual Hand Display -->
+    <div class="relative min-h-[220px] flex items-center justify-center py-4 px-8 overflow-x-auto">
+      <div class="flex items-center" style="padding-left: 3rem;"> <!-- padding for hover space -->
+        <div 
+          v-for="(card, index) in sortedHand" 
+          :key="`${card.suit}-${card.rank}`"
+          class="-ml-16 hover:ml-4 transition-all duration-300 hover:-translate-y-6 hover:z-20 relative first:ml-0"
+          :style="{ zIndex: index }"
+        >
+          <PlayingCard :card="card" className="shadow-2xl hover:shadow-emerald-500/20" />
         </div>
       </div>
     </div>
@@ -45,17 +44,19 @@
 
 <script setup lang="ts">
 import { computed } from 'vue';
+import PlayingCard from './game/PlayingCard.vue';
+import type { Card } from '../../../../shared/types';
 
 const props = defineProps<{
-  hand: any[];
+  hand: Card[];
 }>();
 
 const suits = [
-  { code: 'S', symbol: '♠', name: 'Spade', color: 'text-white' },
+  { code: 'S', symbol: '♠', name: 'Spade', color: 'text-slate-200' }, // Adjusted color for dark mode
   { code: 'H', symbol: '♥', name: 'Heart', color: 'text-red-500' },
-  { code: 'C', symbol: '♣', name: 'Club', color: 'text-white' },
+  { code: 'C', symbol: '♣', name: 'Club', color: 'text-slate-200' },
   { code: 'D', symbol: '♦', name: 'Diamond', color: 'text-red-500' }
-];
+] as const;
 
 const RANK_ORDER = ['A', 'K', 'Q', 'J', '10', '9', '8', '7', '6', '5', '4', '3', '2'];
 
@@ -72,9 +73,16 @@ const getCountBySuit = (suit: string) => {
   return getCardsBySuit(suit).length;
 };
 
-const getHighCard = (suit: string) => {
-  const cards = getCardsBySuit(suit);
-  if (cards.length === 0) return 'kosong';
-  return `Hi: ${cards[0].rank}`;
-};
+// Flattened list for visual display
+const sortedHand = computed(() => {
+  if (!props.hand) return [];
+  // Sort by Suit then Rank
+  const suitOrder = ['S', 'H', 'C', 'D'];
+  return [...props.hand].sort((a, b) => {
+    if (a.suit !== b.suit) {
+      return suitOrder.indexOf(a.suit) - suitOrder.indexOf(b.suit);
+    }
+    return RANK_ORDER.indexOf(a.rank) - RANK_ORDER.indexOf(b.rank);
+  });
+});
 </script>
