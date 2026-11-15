@@ -59,7 +59,7 @@
         <span class="text-sm">
           Giliran: 
           <strong class="text-emerald-400">
-            {{ activePlayer === mySeatId ? 'ANDA!' : `Player ${activePlayer + 1}` }}
+            {{ activePlayer === mySeatId ? 'ANDA!' : (players.find((p: any) => p.seatId === activePlayer)?.name ?? `Seat ${activePlayer}`) }}
           </strong>
         </span>
       </div>

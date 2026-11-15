@@ -19,7 +19,7 @@ const sendAction = (action: string, data: any = {}) => {
   game.send('PLAYER_ACTION', { 
     matchId: game.gameState?.roomId, 
     action, 
-    data: { playerId: game.myPlayerId, ...data } 
+    data 
   });
 };
 </script>
@@ -92,14 +92,14 @@ const sendAction = (action: string, data: any = {}) => {
 
       <div v-else-if="game.phase === 'SCORING' || game.phase === 'FINISHED'" class="text-center py-4 space-y-4">
         <div class="text-4xl">🏁</div>
-        <div class="text-white font-bold">RONDE SELESAI</div>
+        <div class="text-white font-bold">{{ game.gameState?.matchOver ? 'MATCH SELESAI' : 'RONDE SELESAI' }}</div>
         <div class="grid grid-cols-2 gap-2 text-xs bg-slate-900 p-2 rounded">
-          <div>TEAM 1: <span class="text-cyan-400 font-bold">{{ (game.gameState?.players?.[0]?.score || 0) + (game.gameState?.players?.[2]?.score || 0) }}</span></div>
-          <div>TEAM 2: <span class="text-cyan-400 font-bold">{{ (game.gameState?.players?.[1]?.score || 0) + (game.gameState?.players?.[3]?.score || 0) }}</span></div>
+          <div>TEAM 1: <span class="text-cyan-400 font-bold">{{ game.gameState?.teamScores?.[0] ?? 0 }}</span></div>
+          <div>TEAM 2: <span class="text-cyan-400 font-bold">{{ game.gameState?.teamScores?.[1] ?? 0 }}</span></div>
         </div>
         <button 
-          v-if="game.phase === 'FINISHED'"
-          @click="sendAction('NEW_ROUND')" 
+          v-if="game.phase === 'FINISHED' && !game.gameState?.matchOver"
+          @click="sendAction('NEXT_ROUND')" 
           class="w-full bg-gradient-to-r from-emerald-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 text-white font-bold py-3 px-6 rounded-lg shadow-lg transform hover:scale-105 transition-all duration-200"
         >
           Main Lagi

@@ -1,50 +1,41 @@
 // src/game/engine/deck.ts
+// SRS 3.3 + 4.1: seed -> dealer + urutan kartu, semuanya deterministik dari serverSeed.
+import crypto from 'crypto';
 import { Card, Suit, Rank } from '../../../../shared/types';
-import { deterministicShuffle } from './shuffle';
 
 const SUITS: Suit[] = ['S', 'H', 'D', 'C'];
 const RANKS: Rank[] = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
 
-export class Deck {
-  private cards: Card[];
-  private seed: string;
+const hmac = (key: string, msg: string) => crypto.createHmac('sha256', key).update(msg).digest();
 
-  constructor(seed: string) {
-    this.seed = seed;
-    this.cards = this.generateDeck();
-    this.shuffle();
-  }
+/** roundSeed = HMAC_SHA256(serverSeed, matchId || ":" || roundNumber) */
+export function roundSeedOf(serverSeed: string, matchId: string, roundNumber: number): Buffer {
+    return hmac(serverSeed, `${matchId}:${roundNumber}`);
+}
 
-  // Bikin 52 kartu urut
-  private generateDeck(): Card[] {
-    const deck: Card[] = [];
-    for (const suit of SUITS) {
-      for (const rank of RANKS) {
-        deck.push({ suit, rank });
-      }
+/** dealerIndex = roundSeed[0] % 4 */
+export function dealerFromRoundSeed(roundSeed: Buffer): number {
+    return roundSeed[0] % 4;
+}
+
+/** Hash yang dipublikasikan di awal match; serverSeed asli di-reveal di akhir. */
+export function seedHash(serverSeed: string): string {
+    return crypto.createHash('sha256').update(serverSeed).digest('hex');
+}
+
+export function createDeck(): Card[] {
+    return SUITS.flatMap(suit => RANKS.map(rank => ({ suit, rank })));
+}
+
+/**
+ * Fisher-Yates dengan angka acak dari HMAC(roundSeed, i). 48 bit per langkah,
+ * jadi bias modulo untuk <= 52 elemen dapat diabaikan.
+ */
+export function shuffleDeck(roundSeed: Buffer): Card[] {
+    const deck = createDeck();
+    for (let i = deck.length - 1; i > 0; i--) {
+        const r = hmac(roundSeed.toString('hex'), `shuffle:${i}`).readUIntBE(0, 6) % (i + 1);
+        [deck[i], deck[r]] = [deck[r], deck[i]];
     }
     return deck;
-  }
-
-  // Kocok pakai algoritma deterministik kita
-  private shuffle(): void {
-    this.cards = deterministicShuffle(this.cards, this.seed);
-  }
-
-  // Fungsi buat ngambil kartu (dealing)
-  public deal(count: number): Card[] {
-    if (count > this.cards.length) {
-      throw new Error('Not enough cards in deck');
-    }
-    return this.cards.splice(0, count);
-  }
-
-  public getRemainingCount(): number {
-    return this.cards.length;
-  }
-
-  // Debugging only: Liat isi deck sekarang
-  public debugDump(): string[] {
-    return this.cards.map(c => `${c.rank}${c.suit}`);
-  }
 }

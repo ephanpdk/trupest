@@ -1,32 +1,32 @@
-import { MatchState } from './engine/state';
+import { MAX_ROOMS } from '../config';
+import { Room, RoomOptions, defaultRoomOptions } from './room';
 
-export class GameManager {
-    private matches: Map<string, MatchState> = new Map();
+export class RoomRegistry {
+    private rooms = new Map<string, Room>();
 
-    constructor() {}
+    constructor(private overrides: Partial<RoomOptions> = {}) {}
 
-    public createMatch(matchId: string, playerIds: string[]): MatchState {
-        if (this.matches.has(matchId)) {
-            throw new Error(`Match ${matchId} already exists`);
-        }
+    /** null jika kapasitas server penuh. */
+    getOrCreate(id: string): Room | null {
+        const found = this.rooms.get(id);
+        if (found) return found;
+        if (this.rooms.size >= MAX_ROOMS) return null;
 
-        // Init config standard
-        const match = new MatchState(
-            { matchId, seed: Date.now().toString(), isRanked: true },
-            playerIds
-        );
-        
-        this.matches.set(matchId, match);
-        return match;
+        const room = new Room(id, {
+            ...defaultRoomOptions(),
+            ...this.overrides,
+            onEmpty: () => this.rooms.delete(id),
+        });
+        this.rooms.set(id, room);
+        return room;
     }
 
-    public getMatch(matchId: string): MatchState | undefined {
-        return this.matches.get(matchId);
+    get size(): number {
+        return this.rooms.size;
     }
 
-    public removeMatch(matchId: string) {
-        this.matches.delete(matchId);
+    closeAll(): void {
+        this.rooms.forEach(r => r.destroy());
+        this.rooms.clear();
     }
 }
-
-export const gameManager = new GameManager();

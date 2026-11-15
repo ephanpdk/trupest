@@ -1,57 +1,60 @@
 // client/src/services/socket.ts
-
 import { reactive } from 'vue';
 
-// State global untuk status koneksi
-export const socketState = reactive({
-  isConnected: false
-});
+export const socketState = reactive({ isConnected: false });
 
 class SocketService {
   public socket: WebSocket | null = null;
-  // Callback function yang akan diisi oleh Store
-  public onMessage: ((event: any) => void) | null = null; 
+  public onMessage: ((event: any) => void) | null = null;
+  // Dipanggil setiap koneksi (re)open, dipakai store untuk JOIN ulang.
+  public onOpen: (() => void) | null = null;
+
+  private queue: string[] = [];
+  private retryTimer: ReturnType<typeof setTimeout> | null = null;
+  private shouldReconnect = true;
 
   connect() {
+    if (this.socket && this.socket.readyState <= WebSocket.OPEN) return;
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/game`;
-    console.log(`🔌 Connecting to ${wsUrl}...`);
+    const ws = new WebSocket(`${protocol}//${window.location.host}/game`);
+    this.socket = ws;
 
-    this.socket = new WebSocket(wsUrl);
-
-    this.socket.onopen = () => {
-      console.log('✅ WebSocket Connected');
+    ws.onopen = () => {
       socketState.isConnected = true;
+      this.onOpen?.();
+      this.queue.splice(0).forEach(m => ws.send(m));
     };
 
-    this.socket.onmessage = (event) => {
+    ws.onmessage = (event) => {
       try {
-        const parsed = JSON.parse(event.data);
-        // Jika ada yang mendengar (Store), kirim datanya
-        if (this.onMessage) {
-            this.onMessage(parsed);
-        }
+        this.onMessage?.(JSON.parse(event.data));
       } catch (e) {
         console.error('Socket Parse Error:', e);
       }
     };
 
-    this.socket.onclose = () => {
-      console.log('❌ WebSocket Disconnected');
+    ws.onclose = (event) => {
       socketState.isConnected = false;
       this.socket = null;
+      // 4000 = sesi ini digantikan login lain: jangan rebutan koneksi.
+      if (event.code === 4000) this.shouldReconnect = false;
+      if (this.shouldReconnect && !this.retryTimer) {
+        this.retryTimer = setTimeout(() => {
+          this.retryTimer = null;
+          this.connect();
+        }, 1000);
+      }
     };
 
-    this.socket.onerror = (err) => {
-      console.error('WebSocket Error:', err);
-    };
+    ws.onerror = (err) => console.error('WebSocket Error:', err);
   }
 
   send(type: string, payload: any) {
-    if (this.socket && this.socket.readyState === WebSocket.OPEN) {
-      this.socket.send(JSON.stringify({ type, payload }));
-    } else {
-      console.warn('⚠️ Cannot send message, socket not open');
+    const msg = JSON.stringify({ type, payload });
+    if (this.socket && this.socket.readyState === WebSocket.OPEN) this.socket.send(msg);
+    else {
+      this.queue.push(msg); // terkirim begitu koneksi terbuka
+      this.connect();
     }
   }
 }
