@@ -98,4 +98,24 @@ describe('Room: aturan akses', () => {
         expect(room.currentMatch!.matchOver).toBe(true);
         room.destroy();
     }, 30_000);
+
+    it('snapshot membawa sisa waktu giliran manusia, dan null untuk giliran bot', async () => {
+        const room = new Room('TMR', { ...FAST, turnLimitMs: 40_000, botDelayMs: 40 });
+        const snaps: any[] = [];
+        room.join('Solo', undefined, fakeConn(m => m.type === 'GAME_UPDATE' && snaps.push(m.payload)));
+        room.afterJoin();
+        room.start('Solo');
+        await new Promise(r => setTimeout(r, 400));
+
+        const mine = snaps.filter(s => s.phase === 'BIDDING' && s.players.find((p: any) => p.id === 'Solo')?.seatId === s.activePlayer);
+        const bots = snaps.filter(s => s.phase === 'BIDDING' && s.players.find((p: any) => p.id === 'Solo')?.seatId !== s.activePlayer);
+        expect(mine.length).toBeGreaterThan(0);
+        mine.forEach(s => {
+            expect(s.turnMsTotal).toBe(40_000);
+            expect(s.turnMsLeft).toBeGreaterThan(0);
+            expect(s.turnMsLeft).toBeLessThanOrEqual(40_000);
+        });
+        bots.forEach(s => expect(s.turnMsLeft).toBeNull());
+        room.destroy();
+    });
 });

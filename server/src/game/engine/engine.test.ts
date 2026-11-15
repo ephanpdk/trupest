@@ -85,6 +85,51 @@ describe('Bidding & anti-pass (SRS 4.3)', () => {
     });
 });
 
+describe('Data untuk UI meja: bids & canPass', () => {
+    it('bids mencatat bid dan PASS per kursi, kosong untuk yang belum jalan', () => {
+        const m = newMatch();
+        const [a, b] = [m.activePlayerIndex, (m.activePlayerIndex + 1) % 4];
+        m.players[a].hand = WEAK;
+        m.players[b].hand = WEAK;
+        expect(m.getPublicState(0).bids).toEqual([null, null, null, null]);
+        m.playerBid(a, 9);
+        m.playerPass(b);
+        const bids = m.getPublicState(0).bids;
+        expect(bids[a]).toBe(9);
+        expect(bids[b]).toBe('PASS');
+        expect(bids.filter(x => x === null)).toHaveLength(2);
+    });
+
+    it('canPass: hanya untuk pemain yang sedang giliran, dan false jika tangan kuat tanpa override', () => {
+        const m = newMatch();
+        const a = m.activePlayerIndex;
+        m.players[a].hand = STRONG;
+        expect(m.getPublicState(a).canPass).toBe(false);          // tangan layak Bid 8
+        expect(m.getPublicState((a + 1) % 4).canPass).toBe(false); // bukan gilirannya
+        m.players[a].hand = WEAK;
+        expect(m.getPublicState(a).canPass).toBe(true);
+    });
+
+    it('canPass true untuk newAccount yang masih punya override, dan sesudah ada bid >= 8', () => {
+        const m = newMatch('T', [1, 2, 3, 4].map(i => ({ id: `P${i}`, newAccount: true })));
+        const a = m.activePlayerIndex;
+        m.players[a].hand = STRONG;
+        expect(m.getPublicState(a).canPass).toBe(true);
+        m.players[a].passOverridesLeft = 0;
+        expect(m.getPublicState(a).canPass).toBe(false);
+        m.currentBid = 8; // sudah ada yang bid: PASS selalu boleh
+        expect(m.getPublicState(a).canPass).toBe(true);
+    });
+
+    it('bids di-reset di ronde baru', () => {
+        const m = newMatch();
+        m.playerBid(m.activePlayerIndex, 8);
+        m.phase = 'FINISHED';
+        m.startNextRound();
+        expect(m.bids).toEqual([null, null, null, null]);
+    });
+});
+
 describe('Seed & dealing (SRS 3.3, 4.1)', () => {
     it('seed sama -> dealer & kartu identik; seed beda -> beda', () => {
         const a = newMatch('seed-A');
@@ -166,13 +211,13 @@ describe('Scoring (SRS 4.7, 4.8)', () => {
 describe('Trick engine (SRS 4.5, 4.6)', () => {
     let m: MatchState;
 
-    const toTrick = (hidden = false) => {
+    const toTrick = () => {
         m = newMatch('seed-T');
         const first = m.activePlayerIndex;
         m.players.forEach(p => (p.hand = WEAK));
         m.playerBid(first, 8);
         for (let i = 0; i < 3; i++) m.playerPass(m.activePlayerIndex);
-        m.playerSelectTrump(first, 'S', hidden);
+        m.playerSelectTrump(first, 'S');
         return first;
     };
 
@@ -208,13 +253,29 @@ describe('Trick engine (SRS 4.5, 4.6)', () => {
         expect(m.trickScores[seats[3] % 2]).toBe(1);
     });
 
-    it('hidden trump: rank disembunyikan sampai trick selesai', () => {
-        const first = toTrick(true);
+    it('hidden trump selalu aktif: kartu trump tertutup, non-trump terbuka, sampai kartu ke-4', () => {
+        const first = toTrick();
+        expect(m.isTrumpHidden).toBe(true);
         m.players[first].hand = hand(['AS', '2D']);
         m.playCard(first, 0);
 
         const seen = m.getPublicState((first + 1) % 4).currentTrick[0];
         expect(seen).toEqual({ suit: 'S', rank: '?', isHidden: true });
+
+        // kartu non-trump tetap terbuka
+        m.players[(first + 1) % 4].hand = hand(['7H', '8D']); // tanpa suit S, boleh membuang
+        expect(m.playCard((first + 1) % 4, 0).success).toBe(true);
+        expect(m.getPublicState(first).currentTrick[1]).toEqual({ suit: 'H', rank: '7' });
+    });
+
+    it('kartu ke-4 membuka semua kartu trump bersamaan', () => {
+        const first = toTrick();
+        const seats = [0, 1, 2, 3].map(i => (first + i) % 4);
+        seats.forEach((s, i) => (m.players[s].hand = hand([['AS', '2S', '3S', '4S'][i], '5D'])));
+        seats.slice(0, 3).forEach(s => m.playCard(s, 0));
+        expect(m.getPublicState(first).currentTrick.every(c => c.rank === '?')).toBe(true);
+        m.playCard(seats[3], 0);
+        expect(m.getPublicState(first).currentTrick.map(c => c.rank)).toEqual(['A', '2', '3', '4']);
     });
 });
 

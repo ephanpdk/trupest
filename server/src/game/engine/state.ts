@@ -31,6 +31,7 @@ export class MatchState {
     public bidWinner: number | null = null;
     public passCount = 0;
     public biddingTurnCount = 0;
+    public bids: Array<number | 'PASS' | null> = [null, null, null, null];
 
     public roundWins: number[] = [0, 0];
     public lastRound: RoundResult | null = null;
@@ -87,6 +88,7 @@ export class MatchState {
         this.bidWinner = null;
         this.passCount = 0;
         this.biddingTurnCount = 0;
+        this.bids = [null, null, null, null];
         this.lastRound = null;
 
         // SRS 4.2: searah jarum jam, kartu pertama ke kiri dealer.
@@ -116,6 +118,7 @@ export class MatchState {
         if (amount <= this.currentBid) return fail('Bid harus lebih tinggi dari bid saat ini');
 
         this.currentBid = amount;
+        this.bids[seatId] = amount;
         this.bidWinner = seatId;
         this.passCount = 0;
         this.biddingTurnCount++;
@@ -134,10 +137,18 @@ export class MatchState {
             player.passOverridesLeft--;
         }
 
+        this.bids[seatId] = 'PASS';
         this.passCount++;
         this.biddingTurnCount++;
         this.advanceBidding();
         return ok();
+    }
+
+    /** Dipakai client untuk tombol PASS; aturannya tetap hanya hidup di server. */
+    public canPassNow(seatId: number): boolean {
+        if (this.phase !== 'BIDDING' || this.activePlayerIndex !== seatId) return false;
+        const p = this.players[seatId];
+        return !(this.currentBid < 8 && isEligibleBid8(p.hand) && p.passOverridesLeft <= 0);
     }
 
     private advanceBidding(): void {
@@ -156,13 +167,13 @@ export class MatchState {
 
     // ---------- TRUMP (SRS 4.4) ----------
 
-    public playerSelectTrump(seatId: number, suit: Suit, hidden = false): Result {
+    public playerSelectTrump(seatId: number, suit: Suit): Result {
         if (this.phase !== 'TRUMP_SELECTION') return fail('Bukan fase pemilihan trump');
         if (this.bidWinner !== seatId) return fail('Hanya pemenang bid yang boleh memilih trump');
         if (!SUITS.includes(suit)) return fail('Suit tidak valid');
 
         this.trumpSuit = suit;
-        this.isTrumpHidden = !!hidden;
+        this.isTrumpHidden = true; // ciri khas TRUPEST: trump selalu dimainkan tertutup (SRS 4.6)
         this.phase = 'TRICK';
         this.activePlayerIndex = seatId;
         this.trickStarterIndex = seatId;
@@ -283,6 +294,10 @@ export class MatchState {
             isTrumpHidden: this.isTrumpHidden,
             currentBid: this.currentBid,
             bidWinner: this.bidWinner,
+            bids: [...this.bids],
+            canPass: !!me && this.canPassNow(observerSeat),
+            turnMsLeft: null,
+            turnMsTotal: null,
             currentTrick: table,
             leadSuit: this.leadSuit,
             trickStarterIndex: this.trickStarterIndex,

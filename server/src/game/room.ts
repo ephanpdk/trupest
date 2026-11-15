@@ -35,7 +35,6 @@ export const defaultRoomOptions = (): RoomOptions => ({
 export interface ActionData {
     amount?: number;
     suit?: Suit;
-    hidden?: boolean;
     cardIndex?: number;
     card?: { suit: Suit; rank: string };
 }
@@ -67,6 +66,7 @@ export class Room {
     private timer: NodeJS.Timeout | null = null;
     private idleTimer: NodeJS.Timeout | null = null;
     private announced: object | null = null;     // trick_resolve yang sudah dikirim
+    private turnEndsAt: number | null = null;   // batas waktu giliran manusia (epoch ms)
 
     constructor(public readonly id: string, private opts: RoomOptions = defaultRoomOptions()) {
         this.armIdle();
@@ -173,7 +173,7 @@ export class Room {
                 r = m.playerPass(seat);
                 break;
             case 'SELECT_TRUMP':
-                r = m.playerSelectTrump(seat, data.suit as Suit, !!data.hidden);
+                r = m.playerSelectTrump(seat, data.suit as Suit);
                 break;
             case 'PLAY_CARD': {
                 const idx = typeof data.cardIndex === 'number'
@@ -211,13 +211,13 @@ export class Room {
     // ---------- SYNC & TIMING ----------
 
     private afterChange(): void {
+        this.schedule(); // dulu: supaya batas waktu giliran ikut terkirim di snapshot
         this.broadcast();
         const r = this.match?.resolving ?? null;
         if (r && r !== this.announced) {
             this.announced = r;
             this.members.forEach(mem => mem.conn?.send({ type: 'TRICK_RESOLVE', payload: r }));
         }
-        this.schedule();
     }
 
     private broadcast(): void {
@@ -229,6 +229,10 @@ export class Room {
         if (m) {
             const snap = m.getPublicState(m.players.findIndex(p => p.id === playerId));
             snap.hostId = this.hostId;
+            if (this.turnEndsAt !== null) {
+                snap.turnMsLeft = Math.max(0, this.turnEndsAt - Date.now());
+                snap.turnMsTotal = this.opts.turnLimitMs;
+            }
             return snap;
         }
         return {
@@ -237,6 +241,7 @@ export class Room {
             roundNumber: 0, dealerIndex: 0, activePlayer: 0,
             trumpSuit: null, isTrumpHidden: false, currentBid: 0, bidWinner: null,
             currentTrick: [], leadSuit: null, trickStarterIndex: 0, trickScores: [0, 0], trickResolve: null,
+            bids: [null, null, null, null], canPass: false, turnMsLeft: null, turnMsTotal: null,
             legalMask: null, myHand: [], teamScores: [0, 0], lastRound: null, matchOver: false, matchWinner: null,
             seedHash: '', serverSeed: null,
             hostId: this.hostId, canStart: playerId === this.hostId,
@@ -245,6 +250,7 @@ export class Room {
 
     private schedule(): void {
         this.clearTimer();
+        this.turnEndsAt = null;
         const m = this.match;
         if (!m) return;
 
@@ -273,6 +279,7 @@ export class Room {
         const member = this.members.get(player.id);
         const aiPlays = player.isBot || !member || member.aiControlled;
 
+        if (!aiPlays) this.turnEndsAt = Date.now() + this.opts.turnLimitMs;
         this.timer = setTimeout(
             () => this.autoPlay(m, seat, aiPlays ? 'smart' : 'lowest', !aiPlays),
             aiPlays ? this.opts.botDelayMs : this.opts.turnLimitMs
