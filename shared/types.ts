@@ -1,6 +1,7 @@
 // shared/types.ts
+// Kontrak server <-> client. Server adalah satu-satunya sumber kebenaran:
+// client hanya merender field di bawah ini (SRS 4.5.1, 4.5.2, 9.2).
 
-// --- 1. CORE ENTITIES (Kartu & Dasar) ---
 export type Suit = 'S' | 'H' | 'D' | 'C';
 export type Rank = '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' | '10' | 'J' | 'Q' | 'K' | 'A';
 
@@ -9,65 +10,98 @@ export interface Card {
     rank: Rank;
 }
 
+// Kartu seperti yang dilihat client. Hidden trump: suit terlihat, rank '?' (SRS 4.6).
+export interface PublicCard {
+    suit: Suit;
+    rank: Rank | '?';
+    isHidden?: boolean;
+}
+
 export type GamePhase = 'WAITING' | 'DEALING' | 'BIDDING' | 'TRUMP_SELECTION' | 'TRICK' | 'SCORING' | 'FINISHED';
 
-// --- 2. PUBLIC STATE (Apa yang dilihat Client) ---
-
-// DEFINISI INI HILANG SEBELUMNYA, MAKANYA ERROR
 export interface PlayerPublic {
     id: string;
     name: string;
     seatId: number;
     isBot: boolean;
-    cardCount: number; 
-    score: number;     
-    isReady?: boolean; 
+    cardCount: number;
+    // Skor tim = jumlah ronde yang dimenangkan (Best-of-3, SRS 4.8).
+    score: number;
+}
+
+// SRS 8.4 (trick_resolve): dikirim setelah kartu ke-4 diterima. Client freeze sampai ini tiba.
+export interface TrickResolve {
+    cards: Card[];        // urut dari pemain pembuka trick, semua rank terbuka
+    starter: number;      // seat pemain pertama di trick ini
+    winner: number;       // seat pemenang
+    winningCard: Card;
+}
+
+// SRS 4.7: target declarer = bid, target lawan = 14 - bid.
+export interface RoundResult {
+    declarerTeam: number;
+    bid: number;
+    declarerTricks: number;
+    opponentTricks: number;
+    declarerTarget: number;
+    opponentTarget: number;
+    isSuccess: boolean;
+    winnerTeam: number;
 }
 
 export interface GameStateSnapshot {
     roomId: string;
     phase: GamePhase;
-    players: PlayerPublic[]; // Menggunakan interface di atas
-    
+    players: PlayerPublic[];
+
     roundNumber: number;
     dealerIndex: number;
-    
-    // PERBAIKAN NAMA PROPERTI (Client butuh 'activePlayer', bukan 'Index')
-    activePlayer: number; 
-    
+    activePlayer: number;
+
     trumpSuit: Suit | null;
     isTrumpHidden: boolean;
     currentBid: number;
     bidWinner: number | null;
-    
-    currentTrick: Card[];
+
+    currentTrick: PublicCard[];
+    leadSuit: Suit | null;
     trickStarterIndex: number;
-    trickScores: number[]; 
-    
-    myHand?: Card[]; 
+    trickScores: number[];
+    trickResolve: TrickResolve | null;
+
+    // SRS 8.3: hanya dikirim ke pemain yang sedang giliran main (fase TRICK), selain itu null.
+    legalMask: boolean[] | null;
+    myHand: Card[];
+
+    teamScores: number[];          // ronde dimenangkan [tim0, tim1]
+    lastRound: RoundResult | null;
+    matchOver: boolean;
+    matchWinner: number | null;
+
+    // SRS 4.1: hash seed dikirim sejak awal, seed asli baru di-reveal saat match selesai.
+    seedHash: string;
+    serverSeed: string | null;
+
+    // Hanya relevan di fase WAITING.
+    hostId: string | null;
+    canStart: boolean;
 }
 
-// --- 3. SOCKET EVENTS (Protokol Komunikasi) ---
+// --- Protokol WebSocket: { type, payload } ---
 
 export interface ClientEvents {
-    // Legacy Events (untuk UI awal)
-    'C_CREATE_ROOM': { playerName: string };
-    'C_JOIN_ROOM': { roomId: string; playerName: string };
-    
-    // Core Game Events
-    'JOIN_GAME': { matchId: string; playerId: string };
-    
-    'PLAYER_ACTION': {
+    JOIN_GAME: { matchId: string; playerId: string; token?: string };
+    START_GAME: { matchId: string };
+    PLAYER_ACTION: {
         matchId: string;
-        action: 'BID' | 'PASS' | 'SELECT_TRUMP' | 'PLAY_CARD' | 'PLAY_AGAIN' | 'NEXT_ROUND';
-        data: any; 
+        action: 'BID' | 'PASS' | 'SELECT_TRUMP' | 'PLAY_CARD' | 'NEXT_ROUND' | 'PLAY_AGAIN';
+        data?: { amount?: number; suit?: Suit; hidden?: boolean; cardIndex?: number };
     };
 }
 
 export interface ServerEvents {
-    'S_ROOM_CREATED': { roomId: string; playerId: string };
-    'GAME_UPDATE': GameStateSnapshot; 
-    'STATE_CHANGED': Partial<GameStateSnapshot>; 
-    'ACTION_ERROR': { msg: string };
-    'S_PLAYER_JOINED': { player: PlayerPublic };
+    JOINED: { roomId: string; playerId: string; token: string };
+    GAME_UPDATE: GameStateSnapshot;
+    TRICK_RESOLVE: TrickResolve;
+    ACTION_ERROR: { msg: string };
 }

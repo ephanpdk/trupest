@@ -1,233 +1,303 @@
-import { Deck } from './deck';
-import { Player, GameConfig } from '../../types/state';
-import { Card, Suit, GamePhase } from '../../../../shared/types';
+// src/game/engine/state.ts
+// Engine murni & sinkron: tidak ada timer, bot, atau I/O di sini. Room yang mengatur waktu.
+import { Card, Suit, GamePhase, GameStateSnapshot, PublicCard, RoundResult, TrickResolve } from '../../../../shared/types';
+import { Player, PlayerInit, GameConfig, Result } from './types';
+import { dealerFromRoundSeed, roundSeedOf, seedHash, shuffleDeck } from './deck';
+import { isEligibleBid8 } from './bidding';
+import { getLegalMask, resolveTrick } from './trick';
 
-// Import Logic Modul (Facade)
-import * as BiddingPhase from './phases/bidding';
-import * as TrumpPhase from './phases/trump';
-import * as TrickPhase from './phases/trick';
-import * as ScoringPhase from './phases/scoring';
-
-// Import AI Orchestrator
-import { processBotTurns } from '../ai/orchestrator';
+const SUITS: Suit[] = ['S', 'H', 'D', 'C'];
+const ROUNDS_TO_WIN = 2; // SRS 4.8.1: Best-of-3
+const ok = (): Result => ({ success: true });
+const fail = (msg: string): Result => ({ success: false, msg });
 
 export class MatchState {
-  public config: GameConfig;
-  public players: Player[];
-  public phase: GamePhase;
-  public deck: Deck;
-  public roundNumber: number;
-  public dealerIndex: number; 
+    public config: GameConfig;
+    public players: Player[];
+    public phase: GamePhase = 'WAITING';
+    public roundNumber = 1;
+    public dealerIndex = 0;
 
-  public activePlayerIndex: number; 
-  public trumpSuit: Suit | null;    
-  public isTrumpHidden: boolean;
-  public currentTrick: Card[];      
-  public trickStarterIndex: number; 
-  public trickScores: number[];     
+    public activePlayerIndex = 0;
+    public trumpSuit: Suit | null = null;
+    public isTrumpHidden = false;
+    public currentTrick: Card[] = [];
+    public trickStarterIndex = 0;
+    public trickScores: number[] = [0, 0];
+    // Terisi sejak kartu ke-4 masuk sampai finishTrick() (SRS 4.5.2 freeze).
+    public resolving: TrickResolve | null = null;
 
-  public currentBid: number;
-  public bidWinner: number | null;
-  public passCount: number;
-  public biddingTurnCount: number;
+    public currentBid = 0;
+    public bidWinner: number | null = null;
+    public passCount = 0;
+    public biddingTurnCount = 0;
 
-  constructor(config: GameConfig, playerIds: string[]) {
-    this.config = config;
-    this.phase = 'WAITING';
-    this.roundNumber = 1;
-    this.deck = new Deck(config.seed);
-    
-    this.dealerIndex = 0; 
-    
-    this.activePlayerIndex = 0;
-    this.trumpSuit = null;
-    this.isTrumpHidden = false;
-    this.currentTrick = [];
-    this.trickStarterIndex = 0;
-    this.trickScores = [0, 0];
+    public roundWins: number[] = [0, 0];
+    public lastRound: RoundResult | null = null;
+    public matchWinner: number | null = null;
 
-    this.currentBid = 0;
-    this.bidWinner = null;
-    this.passCount = 0;
-    this.biddingTurnCount = 0;
+    constructor(config: GameConfig, players: Array<string | PlayerInit>) {
+        if (players.length !== 4) throw new Error('Match membutuhkan tepat 4 pemain');
+        this.config = config;
 
-    // Inisialisasi Player
-    this.players = playerIds.map((id, index) => ({
-      id,
-      name: `Player ${index + 1}`,
-      seatId: index,
-      hand: [],
-      isBot: id.startsWith('Bot'),
-      passOverridesLeft: 1,
-      score: 0 // Nilai awal skor di memori server
-    }));
-  }
+        // SRS 4.3.2: override hanya Ranked & Public Casual; Custom Room ikut pilihan creator.
+        const overrideAllowed = !config.isCustomRoom || !!config.overrideEnabled;
 
-  // --- HELPER UNTUK AI ---
-  // Dipanggil setiap kali state berubah agar Bot bisa merespons
-  public triggerAutomation() {
-      // LOG PENTING: Cek sinkronisasi state
-      if (this.phase === 'TRICK' && this.currentTrick.length > 0) {
-          // console.log(`[STATE CHECK] Table has: ${this.currentTrick.length} cards`);
-      }
-      processBotTurns(this);
-  }
-
-  public startRound(): void {
-    this.phase = 'DEALING';
-    
-    this.activePlayerIndex = (this.dealerIndex + 1) % 4;
-    this.trickStarterIndex = this.activePlayerIndex;
-    this.trumpSuit = null;
-    this.isTrumpHidden = false;
-    this.currentTrick = [];
-    this.trickScores = [0, 0];
-
-    this.currentBid = 0;
-    this.bidWinner = null;
-    this.passCount = 0;
-    this.biddingTurnCount = 0;
-
-    const roundSeed = `${this.config.seed}:R${this.roundNumber}`;
-    this.deck = new Deck(roundSeed);
-
-    this.players.forEach(p => p.hand = []);
-
-    let currentSeat = (this.dealerIndex + 1) % 4;
-    
-    for (let i = 0; i < 4; i++) {
-      const cards = this.deck.deal(13);
-      const player = this.players.find(p => p.seatId === currentSeat);
-      if (player) {
-        player.hand = cards;
-      }
-      currentSeat = (currentSeat + 1) % 4;
+        this.players = players.map((p, i) => {
+            const init: PlayerInit = typeof p === 'string' ? { id: p } : p;
+            const newAccount = !!init.newAccount && !init.isBot;
+            return {
+                id: init.id,
+                name: init.name ?? `Player ${i + 1}`,
+                seatId: i,
+                hand: [],
+                isBot: !!init.isBot,
+                newAccount,
+                passOverridesLeft: overrideAllowed && newAccount ? 1 : 0, // kuota per match
+                score: 0,
+            };
+        });
     }
 
-    this.phase = 'BIDDING';
-    console.log(`[STATE] Round ${this.roundNumber} Bidding Started.`);
-    
-    // Trigger bot jika pemain pertama adalah Bot
-    this.triggerAutomation();
-  }
-
-  public playerBid(seatId: number, amount: number) {
-      const result = BiddingPhase.handlePlayerBid(this, seatId, amount);
-      if (result.success) this.triggerAutomation();
-      return result;
-  }
-
-  public playerPass(seatId: number) {
-      const result = BiddingPhase.handlePlayerPass(this, seatId);
-      if (result.success) this.triggerAutomation();
-      return result;
-  }
-
-  public playerSelectTrump(seatId: number, suit: Suit, hidden: boolean = false) {
-      const result = TrumpPhase.handleSelectTrump(this, seatId, suit, hidden);
-      if (result.success) this.triggerAutomation();
-      return result;
-  }
-
-  public playCard(seatId: number, cardIndex: number) {
-      const result = TrickPhase.handlePlayCard(this, seatId, cardIndex);
-      if (result.success) this.triggerAutomation();
-      return result;
-  }
-
-  public calculateScore() {
-      return ScoringPhase.calculateScore(this);
-  }
-
-  public startNextRound(): { success: boolean, msg?: string } {
-      if (this.phase !== 'FINISHED') {
-          return { success: false, msg: "Game is not finished yet" };
-      }
-
-      this.roundNumber++;
-      this.dealerIndex = (this.dealerIndex + 1) % 4;
-      
-      console.log(`[STATE] Starting Round ${this.roundNumber}. New Dealer: Seat ${this.dealerIndex}`);
-      
-      this.startRound();
-      return { success: true };
-  }
-
-  // FITUR PLAY AGAIN: Reset seluruh game ke kondisi awal
-  public resetGame(): { success: boolean, msg?: string } {
-      if (this.phase !== 'FINISHED') {
-          return { success: false, msg: "Game belum selesai, tidak bisa restart" };
-      }
-
-      console.log(`[STATE] === PLAY AGAIN - RESETTING GAME ===`);
-      
-      // Reset semua state ke kondisi awal
-      this.roundNumber = 1;
-      this.dealerIndex = 0;
-      this.activePlayerIndex = 0;
-      this.trumpSuit = null;
-      this.isTrumpHidden = false;
-      this.currentTrick = [];
-      this.trickStarterIndex = 0;
-      this.trickScores = [0, 0];
-      this.currentBid = 0;
-      this.bidWinner = null;
-      this.passCount = 0;
-      this.biddingTurnCount = 0;
-
-      // Reset skor semua pemain
-      this.players.forEach(p => {
-          p.score = 0;
-          p.hand = [];
-          p.passOverridesLeft = 1;
-      });
-
-      console.log(`[STATE] Game reset complete. Starting fresh Round 1.`);
-      
-      // Mulai game baru - startRound akan broadcast state baru ke semua client
-      this.startRound();
-      
-      return { success: true };
-  }
-
-  public getPublicState(observerSeat: number) {
-    // --- CCTV DEBUGGING ---
-    // Log ini memastikan kita tahu apa yang dikirim ke Client
-    if (this.currentTrick.length > 0) {
-        console.log(`[DEBUG STATE] Sending State to Client. Table has ${this.currentTrick.length} cards.`);
-        console.log(`[DEBUG STATE] Content:`, JSON.stringify(this.currentTrick));
-    } else {
-         if (this.phase === 'TRICK') {
-             console.log(`[DEBUG STATE] Sending State to Client. Table is EMPTY (Phase: TRICK).`);
-         }
+    get seedHash(): string {
+        return seedHash(this.config.seed);
     }
-    // ----------------------
 
-    return {
-      phase: this.phase,
-      roomId: this.config.matchId,
-      players: this.players.map(p => ({
-        id: p.id,
-        name: p.name,
-        seatId: p.seatId,
-        isBot: p.isBot,
-        cardCount: p.hand.length, 
-        
-        // --- FIX PENTING ---
-        // Mengirim nilai skor asli dari memori server ke client
-        score: p.score 
-        // -------------------
-      })),
-      roundNumber: this.roundNumber,
-      dealerIndex: this.dealerIndex,
-      activePlayer: this.activePlayerIndex,
-      trumpSuit: this.trumpSuit,
-      isTrumpHidden: this.isTrumpHidden,
-      currentTrick: this.currentTrick,
-      myHand: this.players[observerSeat].hand,
-      currentBid: this.currentBid,
-      bidWinner: this.bidWinner,
-      passCount: this.passCount
-    };
-  }
+    get matchOver(): boolean {
+        return this.matchWinner !== null;
+    }
+
+    // ---------- ROUND SETUP ----------
+
+    public startRound(): void {
+        this.phase = 'DEALING';
+
+        const roundSeed = roundSeedOf(this.config.seed, this.config.matchId, this.roundNumber);
+        // Ronde 1: dealer dari seed. Ronde berikutnya: rotasi di startNextRound().
+        if (this.roundNumber === 1) this.dealerIndex = dealerFromRoundSeed(roundSeed);
+
+        this.activePlayerIndex = (this.dealerIndex + 1) % 4;
+        this.trickStarterIndex = this.activePlayerIndex;
+        this.trumpSuit = null;
+        this.isTrumpHidden = false;
+        this.currentTrick = [];
+        this.resolving = null;
+        this.trickScores = [0, 0];
+        this.currentBid = 0;
+        this.bidWinner = null;
+        this.passCount = 0;
+        this.biddingTurnCount = 0;
+        this.lastRound = null;
+
+        // SRS 4.2: searah jarum jam, kartu pertama ke kiri dealer.
+        this.players.forEach(p => (p.hand = []));
+        shuffleDeck(roundSeed).forEach((card, i) => {
+            this.players[(this.dealerIndex + 1 + i) % 4].hand.push(card);
+        });
+
+        this.phase = 'BIDDING';
+    }
+
+    public startNextRound(): Result {
+        if (this.phase !== 'FINISHED') return fail('Ronde belum selesai');
+        if (this.matchOver) return fail('Match sudah selesai, mulai match baru');
+        this.roundNumber++;
+        this.dealerIndex = (this.dealerIndex + 1) % 4;
+        this.startRound();
+        return ok();
+    }
+
+    // ---------- BIDDING (SRS 4.3) ----------
+
+    public playerBid(seatId: number, amount: number): Result {
+        if (this.phase !== 'BIDDING') return fail('Bukan fase bidding');
+        if (this.activePlayerIndex !== seatId) return fail('Bukan giliran Anda');
+        if (!Number.isInteger(amount) || amount < 8 || amount > 13) return fail('Bid harus 8-13');
+        if (amount <= this.currentBid) return fail('Bid harus lebih tinggi dari bid saat ini');
+
+        this.currentBid = amount;
+        this.bidWinner = seatId;
+        this.passCount = 0;
+        this.biddingTurnCount++;
+        this.advanceBidding();
+        return ok();
+    }
+
+    public playerPass(seatId: number): Result {
+        if (this.phase !== 'BIDDING') return fail('Bukan fase bidding');
+        if (this.activePlayerIndex !== seatId) return fail('Bukan giliran Anda');
+
+        const player = this.players[seatId];
+        // SRS 4.3.2: tangan layak Bid 8 -> PASS ditolak, kecuali kuota override masih ada.
+        if (this.currentBid < 8 && isEligibleBid8(player.hand)) {
+            if (player.passOverridesLeft <= 0) return fail('BID_FORCED_MIN_8: tangan terlalu kuat untuk PASS');
+            player.passOverridesLeft--;
+        }
+
+        this.passCount++;
+        this.biddingTurnCount++;
+        this.advanceBidding();
+        return ok();
+    }
+
+    private advanceBidding(): void {
+        if (this.biddingTurnCount < 4) {
+            this.activePlayerIndex = (this.activePlayerIndex + 1) % 4;
+            return;
+        }
+        // SRS 4.3.5: semua PASS -> kontrak 7/7, declarer = pemain pertama yang PASS.
+        if (this.currentBid === 0) {
+            this.currentBid = 7;
+            this.bidWinner = (this.dealerIndex + 1) % 4;
+        }
+        this.phase = 'TRUMP_SELECTION';
+        this.activePlayerIndex = this.bidWinner as number;
+    }
+
+    // ---------- TRUMP (SRS 4.4) ----------
+
+    public playerSelectTrump(seatId: number, suit: Suit, hidden = false): Result {
+        if (this.phase !== 'TRUMP_SELECTION') return fail('Bukan fase pemilihan trump');
+        if (this.bidWinner !== seatId) return fail('Hanya pemenang bid yang boleh memilih trump');
+        if (!SUITS.includes(suit)) return fail('Suit tidak valid');
+
+        this.trumpSuit = suit;
+        this.isTrumpHidden = !!hidden;
+        this.phase = 'TRICK';
+        this.activePlayerIndex = seatId;
+        this.trickStarterIndex = seatId;
+        return ok();
+    }
+
+    // ---------- TRICK (SRS 4.5) ----------
+
+    public get leadSuit(): Suit | null {
+        return this.currentTrick.length > 0 ? this.currentTrick[0].suit : null;
+    }
+
+    public legalMaskFor(seatId: number): boolean[] {
+        return getLegalMask(this.players[seatId].hand, this.leadSuit);
+    }
+
+    public playCard(seatId: number, cardIndex: number): Result {
+        if (this.phase !== 'TRICK') return fail('Bukan fase main kartu');
+        if (this.resolving) return fail('Trick sedang di-resolve, tunggu sebentar');
+        if (this.activePlayerIndex !== seatId) return fail('Bukan giliran Anda');
+
+        const player = this.players[seatId];
+        if (!Number.isInteger(cardIndex) || cardIndex < 0 || cardIndex >= player.hand.length) {
+            return fail('Kartu tidak valid');
+        }
+        if (!this.legalMaskFor(seatId)[cardIndex]) return fail('ERROR_ILLEGAL_PLAY: wajib mengikuti suit');
+
+        this.currentTrick.push(player.hand.splice(cardIndex, 1)[0]);
+
+        if (this.currentTrick.length < 4) {
+            this.activePlayerIndex = (this.activePlayerIndex + 1) % 4;
+        } else {
+            // Kartu ke-4: bekukan meja. Pemenang diumumkan lewat trick_resolve, lalu finishTrick().
+            const offset = resolveTrick(this.currentTrick, this.trumpSuit);
+            this.resolving = {
+                cards: [...this.currentTrick],
+                starter: this.trickStarterIndex,
+                winner: (this.trickStarterIndex + offset) % 4,
+                winningCard: this.currentTrick[offset],
+            };
+        }
+        return ok();
+    }
+
+    public finishTrick(): Result {
+        const r = this.resolving;
+        if (!r) return fail('Tidak ada trick yang menunggu resolve');
+
+        this.trickScores[r.winner % 2]++;
+        this.currentTrick = [];
+        this.resolving = null;
+        this.activePlayerIndex = r.winner;
+        this.trickStarterIndex = r.winner;
+
+        if (this.players.every(p => p.hand.length === 0)) this.endRound();
+        return ok();
+    }
+
+    // ---------- SCORING (SRS 4.7 & 4.8) ----------
+
+    public calculateScore(): RoundResult {
+        if (this.bidWinner === null) throw new Error('Tidak ada bid winner');
+
+        const declarerTeam = this.bidWinner % 2;
+        const bid = this.currentBid;
+        const declarerTricks = this.trickScores[declarerTeam];
+        const isSuccess = declarerTricks >= bid;
+
+        return {
+            declarerTeam,
+            bid,
+            declarerTricks,
+            opponentTricks: this.trickScores[1 - declarerTeam],
+            declarerTarget: bid,
+            opponentTarget: 14 - bid, // 7->7, 8->6, ... 13->1
+            isSuccess,
+            winnerTeam: isSuccess ? declarerTeam : 1 - declarerTeam,
+        };
+    }
+
+    private endRound(): void {
+        const result = this.calculateScore();
+        this.lastRound = result;
+        this.roundWins[result.winnerTeam]++;
+        this.players.forEach(p => (p.score = this.roundWins[p.seatId % 2]));
+        if (this.roundWins[result.winnerTeam] >= ROUNDS_TO_WIN) this.matchWinner = result.winnerTeam;
+        this.phase = 'FINISHED';
+    }
+
+    // ---------- SNAPSHOT UNTUK CLIENT ----------
+
+    public getPublicState(observerSeat: number): GameStateSnapshot {
+        const me = this.players[observerSeat];
+
+        // SRS 4.6: hidden trump tampil tanpa rank sampai trick selesai (saat resolving semua terbuka).
+        const hide = this.isTrumpHidden && !this.resolving;
+        const table: PublicCard[] = this.currentTrick.map(c =>
+            hide && c.suit === this.trumpSuit ? { suit: c.suit, rank: '?', isHidden: true } : c
+        );
+
+        const myTurnToPlay = this.phase === 'TRICK' && !this.resolving && this.activePlayerIndex === observerSeat;
+
+        return {
+            roomId: this.config.matchId,
+            phase: this.phase,
+            players: this.players.map(p => ({
+                id: p.id,
+                name: p.name,
+                seatId: p.seatId,
+                isBot: p.isBot,
+                cardCount: p.hand.length,
+                score: p.score,
+            })),
+            roundNumber: this.roundNumber,
+            dealerIndex: this.dealerIndex,
+            activePlayer: this.activePlayerIndex,
+            trumpSuit: this.trumpSuit,
+            isTrumpHidden: this.isTrumpHidden,
+            currentBid: this.currentBid,
+            bidWinner: this.bidWinner,
+            currentTrick: table,
+            leadSuit: this.leadSuit,
+            trickStarterIndex: this.trickStarterIndex,
+            trickScores: [...this.trickScores],
+            trickResolve: this.resolving,
+            legalMask: me && myTurnToPlay ? this.legalMaskFor(observerSeat) : null,
+            myHand: me ? me.hand : [],
+            teamScores: [...this.roundWins],
+            lastRound: this.lastRound,
+            matchOver: this.matchOver,
+            matchWinner: this.matchWinner,
+            seedHash: this.seedHash,
+            serverSeed: this.matchOver ? this.config.seed : null, // SRS 4.1: reveal di akhir match
+            hostId: null,
+            canStart: false,
+        };
+    }
 }

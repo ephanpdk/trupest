@@ -38,7 +38,7 @@ const joinGame = () => {
         </div>
         
         <p class="text-xs text-slate-600 text-center mt-4">
-           Pastikan Server Online (Port 3000)
+           Room baru dibuat otomatis. Bagikan Room ID ke teman (maks 4 pemain), sisanya diisi bot.
         </p>
       </div>
     </div>

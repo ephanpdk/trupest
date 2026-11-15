@@ -65,5 +65,5 @@ PORT = "3001"
 
 [deployment]
 deploymentTarget = "vm"
-run = ["bash", "-c", "cd server && node dist/index.js & cd client && npx vite preview --host 0.0.0.0 --port 5000"]
-build = ["bash", "-c", "cd client && npm run build && cd ../server && npm run build"]
+run = ["bash", "-c", "cd server && npx tsx src/index.ts & cd client && npx vite preview --host 0.0.0.0 --port 5000"]
+build = ["bash", "-c", "cd client && npm install && npm run build && cd ../server && npm install"]

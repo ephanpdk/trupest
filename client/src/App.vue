@@ -6,6 +6,7 @@ import SimpleBoard from './components/SimpleBoard.vue';
 import GameFinished from './components/GameFinished.vue';
 import HandPreview from './components/HandPreview.vue';
 import PlayerTurnIndicator from './components/PlayerTurnIndicator.vue';
+import WaitingRoom from './components/WaitingRoom.vue';
 import { computed } from 'vue';
 
 const game = useGameStore();
@@ -45,6 +46,10 @@ const mySeatId = computed(() => {
 
       <div v-if="!game.gameState" class="animate-fade-in">
         <GameLobby />
+      </div>
+
+      <div v-else-if="game.phase === 'WAITING'" class="animate-fade-in">
+        <WaitingRoom />
       </div>
 
       <div v-else class="grid grid-cols-1 lg:grid-cols-12 gap-6 animate-fade-in">

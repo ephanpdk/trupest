@@ -12,7 +12,10 @@
         </div>
       </div>
 
-      <div v-if="isMyTurn" class="animate-bounce bg-yellow-500 text-black font-bold px-4 py-2 rounded-full shadow-lg text-sm">
+      <div v-if="resolve" class="bg-emerald-500 text-black font-bold px-4 py-2 rounded-full shadow-lg text-sm">
+        🏆 {{ winnerName }} menang trick ini
+      </div>
+      <div v-else-if="isMyTurn" class="animate-bounce bg-yellow-500 text-black font-bold px-4 py-2 rounded-full shadow-lg text-sm">
         🔔 GILIRAN ANDA!
       </div>
     </div>
@@ -34,7 +37,7 @@
           v-for="(card, i) in gameState.currentTrick" 
           :key="i"
           class="relative w-20 h-32 bg-white rounded-lg shadow-xl flex flex-col items-center justify-between p-2 transform transition-all duration-300 hover:-translate-y-2 border-2 border-gray-300"
-          :class="getSuitColor(card.suit)"
+          :class="[getSuitColor(card.suit), isWinnerCard(i) ? 'ring-4 ring-emerald-400' : '']"
         >
           <div class="text-xl font-bold self-start">{{ card.rank }}</div>
           <div class="text-4xl absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 opacity-20 pointer-events-none">
@@ -60,12 +63,11 @@
           v-for="(item, index) in sortedHand" 
           :key="index"
           @click="playCard(item.originalIndex)"
-          :disabled="!isMyTurn"
+          :disabled="!canPlay(item.originalIndex)"
           class="relative w-20 h-32 bg-white rounded-lg shadow-md transition-all duration-200 flex flex-col items-center justify-between p-2 border-b-4 border-gray-300 group"
           :class="[
             getSuitColor(item.card.suit),
-            isMyTurn ? 'hover:-translate-y-4 hover:shadow-xl hover:border-blue-400 cursor-pointer' : 'opacity-70 cursor-not-allowed grayscale-[0.5]',
-            isValidMove(item.card) ? 'ring-2 ring-emerald-400' : (isMyTurn && leadSuit ? 'opacity-50' : '')
+            canPlay(item.originalIndex) ? 'hover:-translate-y-4 hover:shadow-xl hover:border-blue-400 cursor-pointer ring-2 ring-emerald-400' : 'opacity-50 cursor-not-allowed grayscale-[0.5]'
           ]"
         >
           <div class="text-xl font-bold self-start">{{ item.card.rank }}</div>
@@ -125,21 +127,28 @@ const sortedHand = computed(() => {
   });
 });
 
-// --- LEAD SUIT LOGIC ---
-const leadSuit = computed(() => {
-  // Safety Chain (?.): Cek bertingkat agar tidak crash jika null
-  if (props.gameState?.currentTrick?.length > 0) {
-    return props.gameState.currentTrick[0]?.suit;
-  }
-  return null;
+// Lead suit, legalMask, dan pemenang trick semuanya dihitung server (SRS 4.5). Client hanya merender.
+const leadSuit = computed(() => props.gameState?.leadSuit ?? null);
+const resolve = computed(() => props.gameState?.trickResolve ?? null);
+
+const winnerName = computed(() => {
+  const w = props.gameState?.players?.find((p: any) => p.seatId === resolve.value?.winner);
+  return w ? (w.id === props.playerId ? 'ANDA' : w.name) : '-';
 });
+
+// Kartu ke-i di meja dimainkan oleh seat (starter + i); sorot kartu pemenang.
+const isWinnerCard = (i: number) =>
+  !!resolve.value && (resolve.value.starter + i) % 4 === resolve.value.winner;
+
+const canPlay = (originalIndex: number) =>
+  isMyTurn.value && !resolve.value && !!props.gameState?.legalMask?.[originalIndex];
 
 // --- HELPER VISUAL ---
 const isMyTurn = computed(() => {
   if (!props.gameState || !props.gameState.players) return false;
   const myPlayer = props.gameState.players.find((p: any) => p.id === props.playerId);
   if (!myPlayer) return false;
-  return props.gameState.activePlayer === myPlayer.seatId;
+  return props.gameState.activePlayer === myPlayer.seatId && !props.gameState.trickResolve;
 });
 
 const getSuitColor = (suit: string | null) => {
@@ -151,20 +160,6 @@ const getSuitSymbol = (suit: string | null) => {
   if (!suit) return '-';
   const map: Record<string, string> = { 'S': '♠', 'H': '♥', 'D': '♦', 'C': '♣' };
   return map[suit] || suit;
-};
-
-// --- VALIDASI VISUAL (Highlight kartu legal) ---
-const isValidMove = (card: any) => {
-  if (!isMyTurn.value) return false;
-  if (!leadSuit.value) return true; 
-  if (!card) return false; // Safety
-  
-  const hasLeadSuit = props.gameState.myHand.some((c: any) => c.suit === leadSuit.value);
-  
-  if (hasLeadSuit) {
-    return card.suit === leadSuit.value; 
-  }
-  return true; 
 };
 
 const playCard = (index: number) => {
