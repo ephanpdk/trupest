@@ -59,9 +59,16 @@ export interface GameStateSnapshot {
     activePlayer: number;
 
     trumpSuit: Suit | null;
-    isTrumpHidden: boolean;
+    isTrumpHidden: boolean;     // selalu true di TRUPEST: kartu trump tertutup sampai kartu ke-4
     currentBid: number;
     bidWinner: number | null;
+    // Bid terakhir tiap kursi selama bidding: angka 8-13, 'PASS', atau null (belum jalan).
+    bids: Array<number | 'PASS' | null>;
+    // Server yang memutuskan: true jika pemain yang sedang giliran boleh PASS (anti-pass SRS 4.3.2).
+    canPass: boolean;
+    // Sisa waktu giliran manusia (ms) saat snapshot dikirim; null jika giliran bot / tidak ada timer.
+    turnMsLeft: number | null;
+    turnMsTotal: number | null;
 
     currentTrick: PublicCard[];
     leadSuit: Suit | null;
@@ -95,7 +102,7 @@ export interface ClientEvents {
     PLAYER_ACTION: {
         matchId: string;
         action: 'BID' | 'PASS' | 'SELECT_TRUMP' | 'PLAY_CARD' | 'NEXT_ROUND' | 'PLAY_AGAIN';
-        data?: { amount?: number; suit?: Suit; hidden?: boolean; cardIndex?: number };
+        data?: { amount?: number; suit?: Suit; cardIndex?: number };
     };
 }
 

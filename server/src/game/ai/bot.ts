@@ -65,7 +65,7 @@ export function applyBotMove(m: MatchState, seat: number, move: BotMove): Result
         case 'PASS':
             return m.playerPass(seat);
         case 'TRUMP':
-            return m.playerSelectTrump(seat, move.suit, false);
+            return m.playerSelectTrump(seat, move.suit);
         case 'PLAY':
             return m.playCard(seat, move.index);
     }

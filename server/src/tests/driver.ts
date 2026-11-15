@@ -42,7 +42,7 @@ export class AutoPlayer {
 
         const mine = s.activePlayer === me.seatId;
         if (s.phase === 'BIDDING' && mine) this.act('PASS');
-        else if (s.phase === 'TRUMP_SELECTION' && s.bidWinner === me.seatId) this.act('SELECT_TRUMP', { suit: 'H', hidden: s.roundNumber % 2 === 0 });
+        else if (s.phase === 'TRUMP_SELECTION' && s.bidWinner === me.seatId) this.act('SELECT_TRUMP', { suit: 'H' });
         else if (s.phase === 'TRICK' && mine && s.legalMask) this.act('PLAY_CARD', { cardIndex: s.legalMask.indexOf(true) });
         else if (s.phase === 'FINISHED' && s.hostId === this.id) this.act('NEXT_ROUND');
         else return;

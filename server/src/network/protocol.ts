@@ -8,7 +8,6 @@ const actionData = z
     .object({
         amount: z.number().int().optional(),
         suit: suit.optional(),
-        hidden: z.boolean().optional(),
         cardIndex: z.number().int().optional(),
         card: z.object({ suit, rank: z.string().max(2) }).optional(),
     })

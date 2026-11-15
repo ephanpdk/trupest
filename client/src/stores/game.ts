@@ -15,6 +15,7 @@ export const useGameStore = defineStore('game', () => {
   const isConnected = computed(() => socketState.isConnected);
   const phase = computed(() => gameState.value?.phase || 'LOBBY');
   const socket = computed(() => socketService.socket);
+  const mySeat = computed(() => gameState.value?.players.find(p => p.id === myPlayerId.value)?.seatId ?? 0);
 
   function sendJoin() {
     if (!joinedRoom || !myPlayerId.value) return;
@@ -53,5 +54,5 @@ export const useGameStore = defineStore('game', () => {
     }
   }
 
-  return { gameState, myPlayerId, isConnected, lastError, phase, socket, connect, send, startGame, handleServerEvent };
+  return { gameState, myPlayerId, mySeat, isConnected, lastError, phase, socket, connect, send, startGame, handleServerEvent };
 });

@@ -5,3 +5,28 @@
 body {
   @apply bg-gray-900 text-white;
 }
+
+/* Punggung kartu: dipakai kartu trump tertutup di meja dan kartu lawan. */
+.card-back {
+  background:
+    repeating-linear-gradient(45deg, #1e3a8a 0 5px, #2563eb 5px 10px);
+  border: 2px solid #f8fafc;
+  border-radius: 8%;
+  box-shadow: 0 2px 6px rgb(0 0 0 / 0.4);
+}
+
+/* Meja: kain hijau dengan vinyet halus. */
+.felt {
+  background:
+    radial-gradient(ellipse at center, #15803d 0%, #166534 55%, #14532d 100%);
+}
+
+@keyframes card-drop {
+  from { opacity: 0; transform: translateY(-14px) scale(0.92); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.card-drop { animation: card-drop 0.35s ease-out; } /* <= 400 ms (SRS 9.4) */
+
+@media (prefers-reduced-motion: reduce) {
+  .card-drop { animation: none; }
+}
