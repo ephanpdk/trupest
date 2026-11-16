@@ -11,13 +11,13 @@ const myTeam = computed(() => me.value % 2);
 
 const SYMBOL: Record<string, string> = { S: '♠', H: '♥', D: '♦', C: '♣' };
 const SUITS = ['S', 'H', 'D', 'C'];
-const BIDS = [8, 9, 10, 11, 12, 13];
+const bids = computed(() => Array.from({ length: gs.value.maxBid - 7 }, (_, i) => i + 8)); // 8..maxBid dari server
 
 const nameOf = (seat: number | null) => {
   const p = gs.value.players.find(x => x.seatId === seat);
-  return !p ? '-' : p.id === game.myPlayerId ? 'Anda' : p.name;
+  return p?.name ?? '-';
 };
-const teamLabel = (t: number) => (t === myTeam.value ? 'Tim Anda' : 'Lawan');
+const teamLabel = (t: number) => `Tim ${t === 0 ? 'A' : 'B'}`;
 
 const act = (action: string, data: object = {}) =>
   game.send('PLAYER_ACTION', { matchId: gs.value.roomId, action, data });
@@ -63,9 +63,9 @@ const theirWins = computed(() => gs.value.teamScores[1 - myTeam.value]);
       </div>
 
       <template v-if="myTurn">
-        <div class="mt-3 text-sm font-bold text-emerald-300 animate-pulse">Giliran Anda</div>
-        <div class="mt-2 grid grid-cols-3 sm:grid-cols-6 gap-2">
-          <button v-for="n in BIDS" :key="n" :disabled="n <= gs.currentBid" @click="act('BID', { amount: n })"
+        <div class="mt-3 text-sm font-bold text-emerald-300 animate-pulse">Giliran {{ nameOf(me) }}</div>
+        <div class="mt-2 grid grid-cols-3 gap-2">
+          <button v-for="n in bids" :key="n" :disabled="n <= gs.currentBid" @click="act('BID', { amount: n })"
             class="min-h-11 rounded-lg font-black text-lg bg-emerald-600 hover:bg-emerald-500 active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed transition">
             {{ n }}
           </button>
@@ -74,7 +74,7 @@ const theirWins = computed(() => gs.value.teamScores[1 - myTeam.value]);
           class="mt-2 w-full min-h-11 rounded-lg font-bold bg-slate-600 hover:bg-slate-500 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed transition">
           PASS
         </button>
-        <div v-if="!gs.canPass" class="mt-1 text-[11px] text-amber-300">Tangan kuat: Anda wajib bid minimal 8</div>
+        <div v-if="!gs.canPass" class="mt-1 text-[11px] text-amber-300">Tangan kuat: wajib bid minimal 8</div>
       </template>
       <div v-else class="mt-3 text-sm text-white/70">Menunggu {{ nameOf(gs.activePlayer) }}…</div>
     </div>
@@ -105,12 +105,13 @@ const theirWins = computed(() => gs.value.teamScores[1 - myTeam.value]);
           <CardFace :suit="t.card.suit" :rank="t.card.rank" :down="!!t.card.isHidden" />
         </div>
         <div v-if="!trickCards.length" class="absolute inset-0 flex items-center justify-center text-center text-sm text-white/60">
-          {{ myTurn ? 'Anda membuka trick' : `${nameOf(gs.activePlayer)} membuka trick` }}
+          {{ nameOf(gs.activePlayer) }} membuka trick
         </div>
       </div>
       <div class="min-h-7 text-sm text-center">
         <span v-if="resolve" class="inline-block bg-yellow-300 text-black font-bold px-3 py-1 rounded-full shadow">🏆 {{ nameOf(resolve.winner) }} menang trick</span>
-        <span v-else-if="myTurn" class="text-emerald-300 font-bold animate-pulse">Giliran Anda: pilih kartu</span>
+        <span v-else-if="gs.tableFrozen" class="text-white/70">Kartu trump dibuka…</span>
+        <span v-else-if="myTurn" class="text-emerald-300 font-bold animate-pulse">Giliran {{ nameOf(me) }}: pilih kartu</span>
         <span v-else class="text-white/60">Giliran {{ nameOf(gs.activePlayer) }}</span>
       </div>
     </div>
@@ -124,7 +125,7 @@ const theirWins = computed(() => gs.value.teamScores[1 - myTeam.value]);
           {{ teamLabel(round.winnerTeam) }} menang ronde
         </div>
       </div>
-      <div class="mt-2 text-xs text-white/70">Ronde dimenangkan: Anda {{ myWins }} – Lawan {{ theirWins }}</div>
+      <div class="mt-2 text-xs text-white/70">Ronde dimenangkan: {{ teamLabel(myTeam) }} {{ myWins }} – {{ teamLabel(1 - myTeam) }} {{ theirWins }}</div>
 
       <template v-if="gs.matchOver">
         <div class="mt-2 text-lg font-black text-yellow-300">🏆 {{ teamLabel(gs.matchWinner ?? 0) }} memenangkan match</div>

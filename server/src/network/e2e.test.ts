@@ -11,7 +11,7 @@ let app: ReturnType<typeof buildServer>;
 let url: string;
 
 beforeAll(async () => {
-    app = buildServer({ botDelayMs: 0, trickResolveMs: 0, turnLimitMs: 60_000, nextRoundMs: 60_000 });
+    app = buildServer({ botDelayMs: 0, revealDelayMs: 0, trickResolveMs: 0, turnLimitMs: 60_000, nextRoundMs: 60_000 });
     await app.listen({ port: 0, host: '127.0.0.1' });
     url = `ws://127.0.0.1:${(app.server.address() as any).port}/game`;
 });

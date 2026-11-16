@@ -9,6 +9,7 @@ const actionData = z
         amount: z.number().int().optional(),
         suit: suit.optional(),
         cardIndex: z.number().int().optional(),
+        team: z.enum(['A', 'B', 'RANDOM']).optional(),
         card: z.object({ suit, rank: z.string().max(2) }).optional(),
     })
     .default({}); // field lain (mis. playerId dari client lama) dibuang, identitas diambil dari koneksi
@@ -23,7 +24,7 @@ export const clientMessage = z.discriminatedUnion('type', [
         type: z.literal('PLAYER_ACTION'),
         payload: z.object({
             matchId,
-            action: z.enum(['BID', 'PASS', 'SELECT_TRUMP', 'PLAY_CARD', 'NEXT_ROUND', 'PLAY_AGAIN']),
+            action: z.enum(['BID', 'PASS', 'SELECT_TRUMP', 'PLAY_CARD', 'NEXT_ROUND', 'PLAY_AGAIN', 'CHOOSE_TEAM']),
             data: actionData,
         }),
     }),
