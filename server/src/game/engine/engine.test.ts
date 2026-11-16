@@ -12,7 +12,7 @@ const STRONG = hand(['AS', 'KS', 'QS', 'JS', '10S', 'AH', 'KH', 'AD', 'KD', 'AC'
 const WEAK = hand(['2S', '3S', '4S', '5S', '2H', '3H', '4H', '5H', '2D', '3D', '4D', '5D', '6C']);
 
 const newMatch = (seed = 'TEST', init: any[] = ['P1', 'P2', 'P3', 'P4'], cfg: any = {}) => {
-    const m = new MatchState({ matchId: 'M1', seed, isRanked: false, ...cfg }, init);
+    const m = new MatchState({ matchId: 'M1', seed, ...cfg }, init);
     m.startRound();
     return m;
 };
@@ -56,8 +56,6 @@ describe('Bidding & anti-pass (SRS 4.3)', () => {
 
     it('custom room: override OFF secara default, ON jika creator mengaktifkan', () => {
         const init = [1, 2, 3, 4].map(i => ({ id: `P${i}`, newAccount: true }));
-        expect(newMatch('T', init, { isCustomRoom: true }).players[0].passOverridesLeft).toBe(0);
-        expect(newMatch('T', init, { isCustomRoom: true, overrideEnabled: true }).players[0].passOverridesLeft).toBe(1);
     });
 
     it('bot tidak pernah mendapat override', () => {

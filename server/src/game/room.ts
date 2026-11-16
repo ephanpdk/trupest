@@ -3,12 +3,12 @@
 // bot jalan setelah jeda pendek, manusia dibatasi turn timer 25 dtk, trick di-freeze sebelum diselesaikan.
 import crypto from 'crypto';
 import { GameStateSnapshot, Suit } from '../../../shared/types';
+import { ActionData } from '../network/protocol';
 import { SESSION_SECRET, TIME } from '../config';
-import { MatchState, MAX_BID } from './engine/state';
+import { MatchState, emptySnapshot } from './engine/state';
 import { PlayerInit, Result } from './engine/types';
+import { seatPlan, Team } from './engine/seats';
 import { applyBotMove, botMove } from './ai/bot';
-
-type Team = 'A' | 'B';
 
 export interface Conn {
     send(msg: { type: string; payload: unknown }): void;
@@ -36,14 +36,6 @@ export const defaultRoomOptions = (): RoomOptions => ({
     roomIdleMs: TIME.roomIdleMs,
 });
 
-export interface ActionData {
-    amount?: number;
-    suit?: Suit;
-    cardIndex?: number;
-    card?: { suit: Suit; rank: string };
-    team?: Team | 'RANDOM';
-}
-
 interface Member {
     id: string;
     token: string;
@@ -62,15 +54,6 @@ function validToken(roomId: string, playerId: string, token?: string): boolean {
     const a = Buffer.from(sign(roomId, playerId));
     const b = Buffer.from(token);
     return a.length === b.length && crypto.timingSafeEqual(a, b);
-}
-
-function shuffled<T>(a: T[]): T[] {
-    const r = [...a];
-    for (let i = r.length - 1; i > 0; i--) {
-        const j = crypto.randomInt(i + 1);
-        [r[i], r[j]] = [r[j], r[i]];
-    }
-    return r;
 }
 
 const NAME_RE = /^[\p{L}\p{N} _.-]{1,20}$/u;
@@ -122,7 +105,7 @@ export class Room {
     /** Dipanggil network setelah JOINED terkirim: auto-start jika 4 pemain (SRS 12), lalu sinkron state. */
     afterJoin(): void {
         if (!this.match && this.members.size === 4) this.begin();
-        else this.afterChange();
+        else this.broadcast(); // jangan schedule() ulang: itu mengulang timer giliran pemain lain
     }
 
     leave(playerId: string, conn: Conn): void {
@@ -131,7 +114,7 @@ export class Room {
         m.conn = null;
         if (!this.match) this.members.delete(playerId); // di waiting room, keluar = lepas kursi
         if (![...this.members.values()].some(x => x.conn)) this.armIdle();
-        this.afterChange();
+        this.broadcast();
     }
 
     destroy(): void {
@@ -151,32 +134,15 @@ export class Room {
     }
 
     private begin(prev?: PlayerInit[]): void {
-        // SRS 3.2: kursi diacak server saat game start, tetapi pilihan tim dihormati.
-        // Tim A = kursi 0 & 2, Tim B = kursi 1 & 3: sepasang selalu berhadapan.
-        let participants: PlayerInit[];
-        if (prev) {
-            participants = prev;
-        } else {
-            const humans = [...this.members.values()];
-            const seats: Array<PlayerInit | null> = [null, null, null, null];
-            const free: Record<Team, number[]> = { A: shuffled([0, 2]), B: shuffled([1, 3]) };
-            const place = (m: Member, t: Team) => {
-                seats[free[t].pop() as number] = { id: m.id, name: m.id, newAccount: true };
-            };
-            humans.filter(m => m.team).forEach(m => place(m, m.team as Team));
-            const rest: PlayerInit[] = humans.filter(m => !m.team).map(m => ({ id: m.id, name: m.id, newAccount: true }));
-            for (let i = 1; rest.length + seats.filter(Boolean).length < 4; i++) rest.push({ id: `bot:${i}`, name: `Bot ${i}`, isBot: true });
-            const open = shuffled([0, 1, 2, 3].filter(i => !seats[i]));
-            shuffled(rest).forEach(p => (seats[open.pop() as number] = p));
-            participants = seats as PlayerInit[];
-        }
+        // SRS 3.2: kursi diacak server saat game start, pilihan tim dihormati (lihat engine/seats.ts).
+        const participants = prev ?? seatPlan([...this.members.values()]);
 
         this.members.forEach(m => {
             m.timeouts = 0;
             m.aiControlled = false;
         });
         this.announced = null;
-        this.match = new MatchState({ matchId: this.id, seed: crypto.randomBytes(32).toString('hex'), isRanked: false }, participants);
+        this.match = new MatchState({ matchId: this.id, seed: crypto.randomBytes(32).toString('hex') }, participants);
         this.match.startRound();
         this.afterChange();
     }
@@ -214,10 +180,7 @@ export class Room {
                 r = m.playerSelectTrump(seat, data.suit as Suit);
                 break;
             case 'PLAY_CARD': {
-                const idx = typeof data.cardIndex === 'number'
-                    ? data.cardIndex
-                    : m.players[seat].hand.findIndex(c => c.suit === data.card?.suit && c.rank === data.card?.rank);
-                r = idx === -1 ? { success: false, msg: 'Kartu tidak ada di tangan' } : m.playCard(seat, idx);
+                r = typeof data.cardIndex === 'number' ? m.playCard(seat, data.cardIndex) : { success: false, msg: 'Kartu tidak valid' };
                 break;
             }
             case 'NEXT_ROUND':
@@ -275,15 +238,10 @@ export class Room {
             return snap;
         }
         return {
-            roomId: this.id, phase: 'WAITING',
+            ...emptySnapshot(this.id),
             players: [...this.members.values()].map((mem, i) => ({ id: mem.id, name: mem.id, seatId: i, isBot: false, team: mem.team, cardCount: 0, score: 0 })),
-            roundNumber: 0, dealerIndex: 0, activePlayer: 0,
-            trumpSuit: null, isTrumpHidden: false, currentBid: 0, maxBid: MAX_BID, bidWinner: null,
-            currentTrick: [], leadSuit: null, trickStarterIndex: 0, trickScores: [0, 0], trickResolve: null, tableFrozen: false,
-            bids: [null, null, null, null], canPass: false, turnMsLeft: null, turnMsTotal: null,
-            legalMask: null, myHand: [], teamScores: [0, 0], lastRound: null, matchOver: false, matchWinner: null,
-            seedHash: '', serverSeed: null,
-            hostId: this.hostId, canStart: playerId === this.hostId,
+            hostId: this.hostId,
+            canStart: playerId === this.hostId,
         };
     }
 

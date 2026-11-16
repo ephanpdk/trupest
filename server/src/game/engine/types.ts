@@ -26,7 +26,4 @@ export interface PlayerInit {
 export interface GameConfig {
     matchId: string;
     seed: string;              // serverSeed (rahasia sampai match selesai)
-    isRanked: boolean;
-    isCustomRoom?: boolean;    // SRS 4.3.2: override PASS default OFF di custom room
-    overrideEnabled?: boolean; // dipilih creator custom room
 }

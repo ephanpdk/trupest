@@ -44,9 +44,6 @@ export class MatchState {
         if (players.length !== 4) throw new Error('Match membutuhkan tepat 4 pemain');
         this.config = config;
 
-        // SRS 4.3.2: override hanya Ranked & Public Casual; Custom Room ikut pilihan creator.
-        const overrideAllowed = !config.isCustomRoom || !!config.overrideEnabled;
-
         this.players = players.map((p, i) => {
             const init: PlayerInit = typeof p === 'string' ? { id: p } : p;
             const newAccount = !!init.newAccount && !init.isBot;
@@ -57,7 +54,7 @@ export class MatchState {
                 hand: [],
                 isBot: !!init.isBot,
                 newAccount,
-                passOverridesLeft: overrideAllowed && newAccount ? 1 : 0, // kuota per match
+                passOverridesLeft: newAccount ? 1 : 0, // kuota per match (SRS 4.3.2)
                 score: 0,
             };
         });
@@ -338,3 +335,14 @@ export class MatchState {
         };
     }
 }
+
+/** Snapshot kosong untuk waiting room (belum ada match). Satu-satunya tempat default semua field. */
+export const emptySnapshot = (roomId: string): GameStateSnapshot => ({
+    roomId, phase: 'WAITING', players: [],
+    roundNumber: 0, dealerIndex: 0, activePlayer: 0,
+    trumpSuit: null, isTrumpHidden: false, currentBid: 0, maxBid: MAX_BID, bidWinner: null,
+    bids: [null, null, null, null], canPass: false, turnMsLeft: null, turnMsTotal: null,
+    currentTrick: [], leadSuit: null, trickStarterIndex: 0, trickScores: [0, 0], trickResolve: null, tableFrozen: false,
+    legalMask: null, myHand: [], teamScores: [0, 0], lastRound: null, matchOver: false, matchWinner: null,
+    seedHash: '', serverSeed: null, hostId: null, canStart: false,
+});

@@ -10,9 +10,10 @@ const actionData = z
         suit: suit.optional(),
         cardIndex: z.number().int().optional(),
         team: z.enum(['A', 'B', 'RANDOM']).optional(),
-        card: z.object({ suit, rank: z.string().max(2) }).optional(),
     })
     .default({}); // field lain (mis. playerId dari client lama) dibuang, identitas diambil dari koneksi
+
+export type ActionData = z.infer<typeof actionData>;
 
 export const clientMessage = z.discriminatedUnion('type', [
     z.object({
