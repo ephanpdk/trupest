@@ -24,6 +24,8 @@ export interface PlayerPublic {
     name: string;
     seatId: number;
     isBot: boolean;
+    // Tim A = kursi 0 & 2, Tim B = kursi 1 & 3 (berhadapan). Di waiting room: pilihan pemain, null = acak.
+    team: 'A' | 'B' | null;
     cardCount: number;
     // Skor tim = jumlah ronde yang dimenangkan (Best-of-3, SRS 4.8).
     score: number;
@@ -61,6 +63,7 @@ export interface GameStateSnapshot {
     trumpSuit: Suit | null;
     isTrumpHidden: boolean;     // selalu true di TRUPEST: kartu trump tertutup sampai kartu ke-4
     currentBid: number;
+    maxBid: number;             // bid tertinggi yang boleh (sekarang 10)
     bidWinner: number | null;
     // Bid terakhir tiap kursi selama bidding: angka 8-13, 'PASS', atau null (belum jalan).
     bids: Array<number | 'PASS' | null>;
@@ -75,6 +78,9 @@ export interface GameStateSnapshot {
     trickStarterIndex: number;
     trickScores: number[];
     trickResolve: TrickResolve | null;
+    // true sejak kartu ke-4 jatuh sampai trick berikutnya mulai: input terkunci. trickResolve baru terisi
+    // setelah kartu trump dibuka, jadi client memakai flag ini untuk membedakan "menunggu buka" dan "bermain".
+    tableFrozen: boolean;
 
     // SRS 8.3: hanya dikirim ke pemain yang sedang giliran main (fase TRICK), selain itu null.
     legalMask: boolean[] | null;
@@ -101,8 +107,8 @@ export interface ClientEvents {
     START_GAME: { matchId: string };
     PLAYER_ACTION: {
         matchId: string;
-        action: 'BID' | 'PASS' | 'SELECT_TRUMP' | 'PLAY_CARD' | 'NEXT_ROUND' | 'PLAY_AGAIN';
-        data?: { amount?: number; suit?: Suit; cardIndex?: number };
+        action: 'BID' | 'PASS' | 'SELECT_TRUMP' | 'PLAY_CARD' | 'NEXT_ROUND' | 'PLAY_AGAIN' | 'CHOOSE_TEAM';
+        data?: { amount?: number; suit?: Suit; cardIndex?: number; team?: 'A' | 'B' | 'RANDOM' };
     };
 }
 

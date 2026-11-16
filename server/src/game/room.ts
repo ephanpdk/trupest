@@ -4,9 +4,11 @@
 import crypto from 'crypto';
 import { GameStateSnapshot, Suit } from '../../../shared/types';
 import { SESSION_SECRET, TIME } from '../config';
-import { MatchState } from './engine/state';
+import { MatchState, MAX_BID } from './engine/state';
 import { PlayerInit, Result } from './engine/types';
 import { applyBotMove, botMove } from './ai/bot';
+
+type Team = 'A' | 'B';
 
 export interface Conn {
     send(msg: { type: string; payload: unknown }): void;
@@ -15,6 +17,7 @@ export interface Conn {
 
 export interface RoomOptions {
     botDelayMs: number;
+    revealDelayMs: number;
     trickResolveMs: number;
     turnLimitMs: number;
     nextRoundMs: number;
@@ -25,6 +28,7 @@ export interface RoomOptions {
 
 export const defaultRoomOptions = (): RoomOptions => ({
     botDelayMs: TIME.botDelayMs,
+    revealDelayMs: TIME.revealDelayMs,
     trickResolveMs: TIME.trickResolveMs,
     turnLimitMs: TIME.turnLimitMs,
     nextRoundMs: TIME.nextRoundMs,
@@ -37,6 +41,7 @@ export interface ActionData {
     suit?: Suit;
     cardIndex?: number;
     card?: { suit: Suit; rank: string };
+    team?: Team | 'RANDOM';
 }
 
 interface Member {
@@ -45,6 +50,7 @@ interface Member {
     conn: Conn | null;
     timeouts: number;       // SRS 4.10.2: 3x timeout dalam 1 match -> AI takeover
     aiControlled: boolean;
+    team: Team | null;      // pilihan tim di waiting room; null = acak
 }
 
 // Token sesi: tanpa ini orang lain tidak bisa memakai nama pemain yang sudah ada di room.
@@ -56,6 +62,15 @@ function validToken(roomId: string, playerId: string, token?: string): boolean {
     const a = Buffer.from(sign(roomId, playerId));
     const b = Buffer.from(token);
     return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+function shuffled<T>(a: T[]): T[] {
+    const r = [...a];
+    for (let i = r.length - 1; i > 0; i--) {
+        const j = crypto.randomInt(i + 1);
+        [r[i], r[j]] = [r[j], r[i]];
+    }
+    return r;
 }
 
 const NAME_RE = /^[\p{L}\p{N} _.-]{1,20}$/u;
@@ -97,7 +112,7 @@ export class Room {
         } else {
             if (this.match) return { success: false, msg: 'GAME_STARTED: room sudah berjalan' };
             if (this.members.size >= 4) return { success: false, msg: 'ROOM_FULL: room sudah 4 pemain' };
-            this.members.set(name, { id: name, token: sign(this.id, name), conn, timeouts: 0, aiControlled: false });
+            this.members.set(name, { id: name, token: sign(this.id, name), conn, timeouts: 0, aiControlled: false, team: null });
         }
 
         this.cancelIdle();
@@ -136,16 +151,24 @@ export class Room {
     }
 
     private begin(prev?: PlayerInit[]): void {
-        // SRS 3.2: kursi diacak server saat game start. Kursi kosong diisi bot.
-        let participants: PlayerInit[] = prev ?? [...this.members.values()].map(m => ({ id: m.id, name: m.id, newAccount: true }));
-        if (!prev) {
-            for (let i = 1; participants.length < 4; i++) {
-                participants.push({ id: `bot:${i}`, name: `Bot ${i}`, isBot: true });
-            }
-            for (let i = participants.length - 1; i > 0; i--) {
-                const j = crypto.randomInt(i + 1);
-                [participants[i], participants[j]] = [participants[j], participants[i]];
-            }
+        // SRS 3.2: kursi diacak server saat game start, tetapi pilihan tim dihormati.
+        // Tim A = kursi 0 & 2, Tim B = kursi 1 & 3: sepasang selalu berhadapan.
+        let participants: PlayerInit[];
+        if (prev) {
+            participants = prev;
+        } else {
+            const humans = [...this.members.values()];
+            const seats: Array<PlayerInit | null> = [null, null, null, null];
+            const free: Record<Team, number[]> = { A: shuffled([0, 2]), B: shuffled([1, 3]) };
+            const place = (m: Member, t: Team) => {
+                seats[free[t].pop() as number] = { id: m.id, name: m.id, newAccount: true };
+            };
+            humans.filter(m => m.team).forEach(m => place(m, m.team as Team));
+            const rest: PlayerInit[] = humans.filter(m => !m.team).map(m => ({ id: m.id, name: m.id, newAccount: true }));
+            for (let i = 1; rest.length + seats.filter(Boolean).length < 4; i++) rest.push({ id: `bot:${i}`, name: `Bot ${i}`, isBot: true });
+            const open = shuffled([0, 1, 2, 3].filter(i => !seats[i]));
+            shuffled(rest).forEach(p => (seats[open.pop() as number] = p));
+            participants = seats as PlayerInit[];
         }
 
         this.members.forEach(m => {
@@ -158,7 +181,22 @@ export class Room {
         this.afterChange();
     }
 
+    private chooseTeam(playerId: string, team?: Team | 'RANDOM'): Result {
+        if (this.match) return { success: false, msg: 'Tim hanya bisa dipilih sebelum match mulai' };
+        const me = this.members.get(playerId);
+        if (!me) return { success: false, msg: 'Anda belum join' };
+        if (team !== 'A' && team !== 'B' && team !== 'RANDOM') return { success: false, msg: 'Pilihan tim tidak valid' };
+        if (team !== 'RANDOM') {
+            const taken = [...this.members.values()].filter(x => x !== me && x.team === team).length;
+            if (taken >= 2) return { success: false, msg: `Tim ${team} sudah penuh (2 pemain)` };
+        }
+        me.team = team === 'RANDOM' ? null : team;
+        this.afterChange();
+        return { success: true };
+    }
+
     action(playerId: string, action: string, data: ActionData = {}): Result {
+        if (action === 'CHOOSE_TEAM') return this.chooseTeam(playerId, data.team);
         const m = this.match;
         if (!m) return { success: false, msg: 'Match belum dimulai' };
         const seat = m.players.findIndex(p => p.id === playerId);
@@ -213,7 +251,8 @@ export class Room {
     private afterChange(): void {
         this.schedule(); // dulu: supaya batas waktu giliran ikut terkirim di snapshot
         this.broadcast();
-        const r = this.match?.resolving ?? null;
+        const m = this.match;
+        const r = m && m.trickRevealed ? m.resolving : null;
         if (r && r !== this.announced) {
             this.announced = r;
             this.members.forEach(mem => mem.conn?.send({ type: 'TRICK_RESOLVE', payload: r }));
@@ -237,10 +276,10 @@ export class Room {
         }
         return {
             roomId: this.id, phase: 'WAITING',
-            players: [...this.members.values()].map((mem, i) => ({ id: mem.id, name: mem.id, seatId: i, isBot: false, cardCount: 0, score: 0 })),
+            players: [...this.members.values()].map((mem, i) => ({ id: mem.id, name: mem.id, seatId: i, isBot: false, team: mem.team, cardCount: 0, score: 0 })),
             roundNumber: 0, dealerIndex: 0, activePlayer: 0,
-            trumpSuit: null, isTrumpHidden: false, currentBid: 0, bidWinner: null,
-            currentTrick: [], leadSuit: null, trickStarterIndex: 0, trickScores: [0, 0], trickResolve: null,
+            trumpSuit: null, isTrumpHidden: false, currentBid: 0, maxBid: MAX_BID, bidWinner: null,
+            currentTrick: [], leadSuit: null, trickStarterIndex: 0, trickScores: [0, 0], trickResolve: null, tableFrozen: false,
             bids: [null, null, null, null], canPass: false, turnMsLeft: null, turnMsTotal: null,
             legalMask: null, myHand: [], teamScores: [0, 0], lastRound: null, matchOver: false, matchWinner: null,
             seedHash: '', serverSeed: null,
@@ -255,10 +294,14 @@ export class Room {
         if (!m) return;
 
         if (m.resolving) {
+            // Tahap 1: semua kartu di meja (trump masih tertutup) -> tahap 2: dibuka bersamaan, beri waktu melihat.
+            const revealing = !m.trickRevealed;
             this.timer = setTimeout(() => {
-                m.finishTrick();
+                if (this.match !== m || !m.resolving) return;
+                if (revealing) m.revealTrick();
+                else m.finishTrick();
                 this.afterChange();
-            }, this.opts.trickResolveMs);
+            }, revealing ? this.opts.revealDelayMs : this.opts.trickResolveMs);
             return;
         }
         if (m.phase === 'FINISHED') {

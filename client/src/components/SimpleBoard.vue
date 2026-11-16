@@ -27,14 +27,14 @@ const playerOf = (rel: number) => gs.value.players.find(p => p.seatId === seatOf
 const isMine = (rel: number) => rel === 0 || rel === 2; // partner = satu tim dengan kita
 const nameOf = (rel: number) => {
   const p = playerOf(rel);
-  return !p ? '-' : p.id === game.myPlayerId ? 'Anda' : p.name;
+  return p?.name ?? '-';
 };
 const bidLabel = (rel: number) => {
   if (gs.value.phase !== 'BIDDING' && gs.value.phase !== 'TRUMP_SELECTION') return '';
   const b = gs.value.bids[seatOf(rel)];
   return b === 'PASS' ? 'Pass' : typeof b === 'number' ? `Bid ${b}` : '';
 };
-const isActive = (rel: number) => gs.value.activePlayer === seatOf(rel) && ['BIDDING', 'TRUMP_SELECTION', 'TRICK'].includes(gs.value.phase) && !gs.value.trickResolve;
+const isActive = (rel: number) => gs.value.activePlayer === seatOf(rel) && ['BIDDING', 'TRUMP_SELECTION', 'TRICK'].includes(gs.value.phase) && !gs.value.tableFrozen;
 
 // ---------- timer giliran (sisa waktu dari server, dihitung turun di client) ----------
 const now = ref(Date.now());
@@ -60,7 +60,7 @@ const hand = computed(() =>
       SUIT_ORDER.indexOf(a.card.suit) - SUIT_ORDER.indexOf(b.card.suit) ||
       RANK_ORDER.indexOf(a.card.rank) - RANK_ORDER.indexOf(b.card.rank))
 );
-const myTurnToPlay = computed(() => gs.value.phase === 'TRICK' && !gs.value.trickResolve && gs.value.activePlayer === me.value);
+const myTurnToPlay = computed(() => gs.value.phase === 'TRICK' && !gs.value.tableFrozen && gs.value.activePlayer === me.value);
 const playable = (i: number) => myTurnToPlay.value && !!gs.value.legalMask?.[i];
 const dimmed = (i: number) => myTurnToPlay.value && !gs.value.legalMask?.[i];
 
@@ -84,6 +84,7 @@ const playCard = (i: number) => {
 // ---------- skor & kontrak ----------
 const myWins = computed(() => gs.value.teamScores[myTeam.value]);
 const theirWins = computed(() => gs.value.teamScores[1 - myTeam.value]);
+const teamName = (t: number) => `Tim ${t === 0 ? 'A' : 'B'}`;
 const showContract = computed(() => !!gs.value.trumpSuit && (gs.value.phase === 'TRICK' || gs.value.phase === 'FINISHED'));
 </script>
 
@@ -92,8 +93,8 @@ const showContract = computed(() => !!gs.value.trumpSuit && (gs.value.phase === 
     <!-- skor tim + kontrak -->
     <div class="absolute top-1.5 right-1.5 sm:top-3 sm:right-3 z-30 flex flex-col items-end gap-1.5">
       <div class="rounded-lg overflow-hidden text-center text-[10px] sm:text-xs font-bold shadow-lg w-16 sm:w-20">
-        <div class="bg-sky-300 text-sky-950 py-0.5">Anda <span class="text-base sm:text-lg leading-none block">{{ myWins }}</span></div>
-        <div class="bg-rose-300 text-rose-950 py-0.5">Lawan <span class="text-base sm:text-lg leading-none block">{{ theirWins }}</span></div>
+        <div class="bg-sky-300 text-sky-950 py-0.5">{{ teamName(myTeam) }} <span class="text-base sm:text-lg leading-none block">{{ myWins }}</span></div>
+        <div class="bg-rose-300 text-rose-950 py-0.5">{{ teamName(1 - myTeam) }} <span class="text-base sm:text-lg leading-none block">{{ theirWins }}</span></div>
       </div>
       <div v-if="showContract" class="bg-black/50 rounded-lg px-2 py-1 text-xs sm:text-sm font-bold flex items-center gap-1 shadow">
         <span :class="gs.trumpSuit === 'H' || gs.trumpSuit === 'D' ? 'text-red-400' : 'text-white'" class="text-base sm:text-lg leading-none">{{ SYMBOL[gs.trumpSuit!] }}</span>

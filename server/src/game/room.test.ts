@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { Room, Conn } from './room';
 import { AutoPlayer, withTimeout } from '../tests/driver';
 
-const FAST = { botDelayMs: 0, trickResolveMs: 0, turnLimitMs: 60_000, nextRoundMs: 60_000, maxTimeouts: 3, roomIdleMs: 60_000 };
+const FAST = { botDelayMs: 0, revealDelayMs: 0, trickResolveMs: 0, turnLimitMs: 60_000, nextRoundMs: 60_000, maxTimeouts: 3, roomIdleMs: 60_000 };
 
 function fakeConn(onMsg: (m: any) => void): Conn & { closed?: string } {
     const c: Conn & { closed?: string } = {
@@ -116,6 +116,41 @@ describe('Room: aturan akses', () => {
             expect(s.turnMsLeft).toBeLessThanOrEqual(40_000);
         });
         bots.forEach(s => expect(s.turnMsLeft).toBeNull());
+        room.destroy();
+    });
+});
+
+describe('Room: pilihan tim & kursi berhadapan', () => {
+    const join = (room: Room, name: string) => {
+        expect(room.join(name, undefined, fakeConn(() => {})).success).toBe(true);
+    };
+
+    it('pemain memilih tim dan duduk di kursi sepasang (0&2 = A, 1&3 = B)', () => {
+        for (let k = 0; k < 20; k++) {
+            const room = new Room(`T${k}`, { ...FAST });
+            ['Ani', 'Budi', 'Cici'].forEach(n => join(room, n));
+            expect(room.action('Ani', 'CHOOSE_TEAM', { team: 'A' }).success).toBe(true);
+            expect(room.action('Budi', 'CHOOSE_TEAM', { team: 'A' }).success).toBe(true);
+            expect(room.action('Cici', 'CHOOSE_TEAM', { team: 'B' }).success).toBe(true);
+            room.start('Ani');
+            const seat = (id: string) => room.currentMatch!.players.findIndex(p => p.id === id);
+            expect(seat('Ani') % 2).toBe(0);
+            expect(seat('Budi') % 2).toBe(0);
+            expect(seat('Cici') % 2).toBe(1);
+            room.destroy();
+        }
+    });
+
+    it('tim penuh ditolak, RANDOM membatalkan pilihan, tidak bisa ganti saat match jalan', () => {
+        const room = new Room('T-full', { ...FAST });
+        ['A1', 'A2', 'A3'].forEach(n => join(room, n));
+        room.action('A1', 'CHOOSE_TEAM', { team: 'B' });
+        room.action('A2', 'CHOOSE_TEAM', { team: 'B' });
+        expect(room.action('A3', 'CHOOSE_TEAM', { team: 'B' }).success).toBe(false);
+        expect(room.action('A1', 'CHOOSE_TEAM', { team: 'RANDOM' }).success).toBe(true);
+        expect(room.action('A3', 'CHOOSE_TEAM', { team: 'B' }).success).toBe(true);
+        room.start('A1');
+        expect(room.action('A1', 'CHOOSE_TEAM', { team: 'A' }).success).toBe(false);
         room.destroy();
     });
 });

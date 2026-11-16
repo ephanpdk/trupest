@@ -268,14 +268,43 @@ describe('Trick engine (SRS 4.5, 4.6)', () => {
         expect(m.getPublicState(first).currentTrick[1]).toEqual({ suit: 'H', rank: '7' });
     });
 
-    it('kartu ke-4 membuka semua kartu trump bersamaan', () => {
+    it('kartu ke-4 trump ikut tertutup, semua dibuka bersamaan lewat revealTrick', () => {
         const first = toTrick();
         const seats = [0, 1, 2, 3].map(i => (first + i) % 4);
         seats.forEach((s, i) => (m.players[s].hand = hand([['AS', '2S', '3S', '4S'][i], '5D'])));
         seats.slice(0, 3).forEach(s => m.playCard(s, 0));
         expect(m.getPublicState(first).currentTrick.every(c => c.rank === '?')).toBe(true);
         m.playCard(seats[3], 0);
-        expect(m.getPublicState(first).currentTrick.map(c => c.rank)).toEqual(['A', '2', '3', '4']);
+        let snap = m.getPublicState(first);
+        expect(snap.currentTrick.every(c => c.rank === '?')).toBe(true); // 4 kartu di meja, semua masih tertutup
+        expect(snap.tableFrozen).toBe(true);
+        expect(snap.trickResolve).toBeNull();
+        m.revealTrick();
+        snap = m.getPublicState(first);
+        expect(snap.currentTrick.map(c => c.rank)).toEqual(['A', '2', '3', '4']);
+        expect(snap.trickResolve?.winner).toBe(seats[0]);
+    });
+
+    it('bid maksimal 10', () => {
+        const mm = newMatch('seed-MAXBID');
+        const seat = mm.activePlayerIndex;
+        expect(mm.playerBid(seat, 11).success).toBe(false);
+        expect(mm.playerBid(seat, 10).success).toBe(true);
+    });
+
+    it('ronde langsung selesai begitu declarer capai bid atau lawan capai 14 - bid', () => {
+        for (const [bid, declarerWins] of [[8, true], [8, false], [10, false]] as const) {
+            const mm = newMatch('seed-EARLY');
+            mm.phase = 'TRICK';
+            mm.currentBid = bid;
+            mm.bidWinner = 0;
+            mm.trickScores = declarerWins ? [bid - 1, 0] : [0, 14 - bid - 1];
+            mm.players.forEach(p => (p.hand = hand(['2C', '3C', '4C'])));
+            mm.resolving = { cards: [], starter: 0, winner: declarerWins ? 0 : 1, winningCard: { suit: 'C', rank: '2' } };
+            mm.finishTrick();
+            expect(mm.phase).toBe('FINISHED'); // tangan masih berisi kartu, tetapi ronde sudah diputuskan
+            expect(mm.lastRound?.winnerTeam).toBe(declarerWins ? 0 : 1);
+        }
     });
 });
 

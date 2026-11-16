@@ -8,7 +8,8 @@ const num = (name: string, fallback: number) => {
 // Satu tempat untuk semua konstanta waktu (SRS 21.1). Bisa di-override lewat env / opsi Room.
 export const TIME = {
     botDelayMs: num('BOT_DELAY_MS', 700),         // jeda bot supaya manusia bisa mengikuti
-    trickResolveMs: num('TRICK_RESOLVE_MS', 1800), // freeze setelah kartu ke-4 (SRS 4.5.2)
+    revealDelayMs: num('REVEAL_DELAY_MS', 1200),   // kartu ke-4 trump masih tertutup, lalu semua dibuka bersamaan
+    trickResolveMs: num('TRICK_RESOLVE_MS', 2600), // jeda melihat semua kartu setelah dibuka, sebelum trick berikut (SRS 4.5.2)
     turnLimitMs: num('TURN_LIMIT_MS', 25_000),     // SRS 4.10.2
     nextRoundMs: num('NEXT_ROUND_MS', 30_000),     // SRS 4.8.2: ready prompt 30 dtk, lalu lanjut otomatis
     maxTimeouts: 3,                                // 3x timeout -> AI takeover

@@ -8,6 +8,7 @@ import { getLegalMask, resolveTrick } from './trick';
 
 const SUITS: Suit[] = ['S', 'H', 'D', 'C'];
 const ROUNDS_TO_WIN = 2; // SRS 4.8.1: Best-of-3
+export const MAX_BID = 10; // batas bid sementara (SRS asli 13)
 const ok = (): Result => ({ success: true });
 const fail = (msg: string): Result => ({ success: false, msg });
 
@@ -26,6 +27,8 @@ export class MatchState {
     public trickScores: number[] = [0, 0];
     // Terisi sejak kartu ke-4 masuk sampai finishTrick() (SRS 4.5.2 freeze).
     public resolving: TrickResolve | null = null;
+    // false sampai kartu trump di meja dibuka bersamaan (setelah kartu ke-4 + jeda). Tanpa trump di meja langsung true.
+    public trickRevealed = false;
 
     public currentBid = 0;
     public bidWinner: number | null = null;
@@ -83,6 +86,7 @@ export class MatchState {
         this.isTrumpHidden = false;
         this.currentTrick = [];
         this.resolving = null;
+        this.trickRevealed = false;
         this.trickScores = [0, 0];
         this.currentBid = 0;
         this.bidWinner = null;
@@ -114,7 +118,7 @@ export class MatchState {
     public playerBid(seatId: number, amount: number): Result {
         if (this.phase !== 'BIDDING') return fail('Bukan fase bidding');
         if (this.activePlayerIndex !== seatId) return fail('Bukan giliran Anda');
-        if (!Number.isInteger(amount) || amount < 8 || amount > 13) return fail('Bid harus 8-13');
+        if (!Number.isInteger(amount) || amount < 8 || amount > MAX_BID) return fail(`Bid harus 8-${MAX_BID}`);
         if (amount <= this.currentBid) return fail('Bid harus lebih tinggi dari bid saat ini');
 
         this.currentBid = amount;
@@ -214,7 +218,16 @@ export class MatchState {
                 winner: (this.trickStarterIndex + offset) % 4,
                 winningCard: this.currentTrick[offset],
             };
+            // Ada trump tertutup di meja: tahan dulu (termasuk kartu ke-4), buka lewat revealTrick().
+            this.trickRevealed = !(this.isTrumpHidden && this.currentTrick.some(c => c.suit === this.trumpSuit));
         }
+        return ok();
+    }
+
+    /** Buka semua kartu trump di meja bersamaan; pemenang baru diumumkan setelah ini. */
+    public revealTrick(): Result {
+        if (!this.resolving) return fail('Tidak ada trick yang menunggu dibuka');
+        this.trickRevealed = true;
         return ok();
     }
 
@@ -225,10 +238,16 @@ export class MatchState {
         this.trickScores[r.winner % 2]++;
         this.currentTrick = [];
         this.resolving = null;
+        this.trickRevealed = false;
         this.activePlayerIndex = r.winner;
         this.trickStarterIndex = r.winner;
 
-        if (this.players.every(p => p.hand.length === 0)) this.endRound();
+        // Ronde berakhir begitu salah satu tim mencapai targetnya: declarer = bid, lawan = 14 - bid.
+        const declarerTeam = (this.bidWinner as number) % 2;
+        const decided =
+            this.trickScores[declarerTeam] >= this.currentBid ||
+            this.trickScores[1 - declarerTeam] >= 14 - this.currentBid;
+        if (decided || this.players.every(p => p.hand.length === 0)) this.endRound();
         return ok();
     }
 
@@ -268,8 +287,8 @@ export class MatchState {
     public getPublicState(observerSeat: number): GameStateSnapshot {
         const me = this.players[observerSeat];
 
-        // SRS 4.6: hidden trump tampil tanpa rank sampai trick selesai (saat resolving semua terbuka).
-        const hide = this.isTrumpHidden && !this.resolving;
+        // SRS 4.6: hidden trump tampil tanpa rank sampai semua kartu dibuka bersamaan (trickRevealed).
+        const hide = this.isTrumpHidden && !this.trickRevealed;
         const table: PublicCard[] = this.currentTrick.map(c =>
             hide && c.suit === this.trumpSuit ? { suit: c.suit, rank: '?', isHidden: true } : c
         );
@@ -284,6 +303,7 @@ export class MatchState {
                 name: p.name,
                 seatId: p.seatId,
                 isBot: p.isBot,
+                team: p.seatId % 2 === 0 ? 'A' : 'B',
                 cardCount: p.hand.length,
                 score: p.score,
             })),
@@ -293,6 +313,7 @@ export class MatchState {
             trumpSuit: this.trumpSuit,
             isTrumpHidden: this.isTrumpHidden,
             currentBid: this.currentBid,
+            maxBid: MAX_BID,
             bidWinner: this.bidWinner,
             bids: [...this.bids],
             canPass: !!me && this.canPassNow(observerSeat),
@@ -302,7 +323,8 @@ export class MatchState {
             leadSuit: this.leadSuit,
             trickStarterIndex: this.trickStarterIndex,
             trickScores: [...this.trickScores],
-            trickResolve: this.resolving,
+            trickResolve: this.trickRevealed ? this.resolving : null,
+            tableFrozen: !!this.resolving,
             legalMask: me && myTurnToPlay ? this.legalMaskFor(observerSeat) : null,
             myHand: me ? me.hand : [],
             teamScores: [...this.roundWins],
