@@ -32,7 +32,7 @@ describe.each([1, 2, 3, 4])('Room: %i pemain manusia + bot sampai match selesai'
             expect(r.success).toBe(true);
             room.afterJoin();
         }
-        if (n < 4) expect(room.start('Human0').success).toBe(true); // host mulai, sisa kursi = bot
+        expect(room.start('Human0').success).toBe(true); // host mulai, sisa kursi = bot
 
         const finals = await withTimeout(Promise.all(players.map(p => p.done)), 20_000, `room ${n}`);
 
@@ -151,6 +151,31 @@ describe('Room: pilihan tim & kursi berhadapan', () => {
         expect(room.action('A3', 'CHOOSE_TEAM', { team: 'B' }).success).toBe(true);
         room.start('A1');
         expect(room.action('A1', 'CHOOSE_TEAM', { team: 'A' }).success).toBe(false);
+        room.destroy();
+    });
+});
+
+describe('Room: timer giliran tidak direset pemain lain', () => {
+    it('pemain lain putus dan masuk lagi tidak memperpanjang batas waktu', async () => {
+        const room = new Room('T-timer', { ...FAST });
+        const conns = ['P1', 'P2'].map(n => {
+            const c = fakeConn(() => {});
+            expect(room.join(n, undefined, c).success).toBe(true);
+            return c;
+        });
+        room.start('P1');
+        const m = room.currentMatch!;
+        const humanTurn = () => ['P1', 'P2'].includes(m.players[m.activePlayerIndex].id);
+        for (let i = 0; i < 200 && !humanTurn(); i++) await new Promise(r => setTimeout(r, 5)); // bot jalan dulu
+
+        expect(humanTurn()).toBe(true);
+        const before = (room as any).turnEndsAt;
+        const other = m.players[m.activePlayerIndex].id === 'P1' ? 'P2' : 'P1';
+        const otherConn = conns[other === 'P1' ? 0 : 1];
+        room.leave(other, otherConn);
+        room.join(other, undefined, fakeConn(() => {}));
+        room.afterJoin();
+        expect((room as any).turnEndsAt).toBe(before);
         room.destroy();
     });
 });

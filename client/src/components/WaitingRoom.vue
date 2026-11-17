@@ -58,7 +58,6 @@ const full = (t: 'A' | 'B') => inTeam(t).filter(p => p.id !== game.myPlayerId).l
       </button>
       <p v-else class="text-center text-slate-500 text-sm italic">Menunggu host memulai game...</p>
 
-      <p class="text-xs text-slate-600 text-center mt-4">Game mulai otomatis saat 4 pemain sudah masuk.</p>
     </div>
   </div>
 </template>

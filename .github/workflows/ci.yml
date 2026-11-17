@@ -1,0 +1,29 @@
+name: CI
+on:
+  push:
+    branches: [main, rombak-ringan]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            server/package-lock.json
+            client/package-lock.json
+      - name: Server (typecheck + tes)
+        working-directory: server
+        run: |
+          npm ci
+          npx tsc --noEmit
+          npm test
+      - name: Client (build)
+        working-directory: client
+        run: |
+          npm ci
+          npm run build

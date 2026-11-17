@@ -2,22 +2,34 @@
 // lewat payload pesan berikutnya (mencegah penyamaran pemain lain).
 import Fastify from 'fastify';
 import websocket from '@fastify/websocket';
-import { TIME } from './config';
+import fastifyStatic from '@fastify/static';
+import fs from 'fs';
+import path from 'path';
+import { LIMITS, TIME } from './config';
 import { RoomRegistry } from './game/manager';
 import { Conn, Room, RoomOptions } from './game/room';
 import { parseClientMessage } from './network/protocol';
 
 export function buildServer(roomOverrides: Partial<RoomOptions> = {}) {
-    const app = Fastify({ logger: process.env.NODE_ENV !== 'test' });
+    // TRUST_PROXY=1 di belakang proxy (Render, Fly, nginx) supaya req.ip = alamat pemain, bukan alamat proxy.
+    const app = Fastify({ logger: process.env.NODE_ENV !== 'test', trustProxy: process.env.TRUST_PROXY === '1' });
     const rooms = new RoomRegistry(roomOverrides);
+    const connsPerIp = new Map<string, number>();
 
     app.register(websocket, { options: { maxPayload: 4096 } });
+
+    // Satu proses untuk deploy: kalau client sudah di-build (client/dist), server ikut menyajikannya.
+    const dist = path.resolve(__dirname, '../../client/dist');
+    if (fs.existsSync(dist)) app.register(fastifyStatic, { root: dist });
 
     app.register(async f => {
         f.get('/health', async () => ({ status: 'ok', uptime: process.uptime(), rooms: rooms.size }));
 
-        f.get('/game', { websocket: true }, connection => {
+        f.get('/game', { websocket: true }, (connection, req) => {
             const ws = connection.socket;
+            const ip = req.ip;
+            if ((connsPerIp.get(ip) ?? 0) >= LIMITS.connPerIp) return void ws.close(1013, 'Terlalu banyak koneksi');
+            connsPerIp.set(ip, (connsPerIp.get(ip) ?? 0) + 1);
             let joined: { room: Room; playerId: string } | null = null;
 
             const conn: Conn = {
@@ -34,7 +46,11 @@ export function buildServer(roomOverrides: Partial<RoomOptions> = {}) {
                 ws.ping();
             }, TIME.heartbeatMs);
 
+            let winSec = 0, winCount = 0;
             ws.on('message', raw => {
+                const sec = Math.floor(Date.now() / 1000);
+                if (sec !== winSec) { winSec = sec; winCount = 0; }
+                if (++winCount > LIMITS.msgsPerSec) return ws.close(1008, 'Terlalu banyak pesan');
                 const parsed = parseClientMessage(raw.toString());
                 if (!parsed.ok) return error(parsed.error);
                 const { type, payload } = parsed.msg;
@@ -63,6 +79,8 @@ export function buildServer(roomOverrides: Partial<RoomOptions> = {}) {
 
             ws.on('close', () => {
                 clearInterval(heartbeat);
+                const n = (connsPerIp.get(ip) ?? 1) - 1;
+                if (n > 0) connsPerIp.set(ip, n); else connsPerIp.delete(ip);
                 if (joined) joined.room.leave(joined.playerId, conn);
             });
         });

@@ -2,6 +2,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import WebSocket from 'ws';
 import { buildServer } from '../app';
+import { LIMITS } from '../config';
 import { parseClientMessage } from './protocol';
 import { AutoPlayer, withTimeout } from '../tests/driver';
 
@@ -10,7 +11,10 @@ process.env.NODE_ENV = 'test';
 let app: ReturnType<typeof buildServer>;
 let url: string;
 
+const NORMAL = { ...LIMITS };
+
 beforeAll(async () => {
+    LIMITS.msgsPerSec = 100_000; // pemain otomatis mengirim jauh lebih cepat dari manusia
     app = buildServer({ botDelayMs: 0, revealDelayMs: 0, trickResolveMs: 0, turnLimitMs: 60_000, nextRoundMs: 60_000 });
     await app.listen({ port: 0, host: '127.0.0.1' });
     url = `ws://127.0.0.1:${(app.server.address() as any).port}/game`;
@@ -42,7 +46,7 @@ describe.each([1, 2, 3, 4])('WebSocket e2e: %i pemain', n => {
         await Promise.all(clients.map(c => c.opened));
         await new Promise(r => setTimeout(r, 100));
 
-        if (n < 4) clients[0].ws.send(JSON.stringify({ type: 'START_GAME', payload: { matchId: room } })); // host = pemain pertama
+        clients[0].ws.send(JSON.stringify({ type: 'START_GAME', payload: { matchId: room } })); // host = pemain pertama
 
         const finals = await withTimeout(Promise.all(clients.map(c => c.player.done)), 20_000, `e2e ${n}`);
         finals.forEach(f => {
@@ -97,5 +101,26 @@ describe('WebSocket: keamanan dasar', () => {
         expect(await withTimeout(closed, 2000, 'kick sesi lama')).toBe(4000);
         expect(again.player.snapshots.length).toBeGreaterThan(0);
         again.ws.close();
+    });
+});
+
+describe('Batas penyalahgunaan', () => {
+    it('membanjiri pesan memutus koneksi (1008)', async () => {
+        LIMITS.msgsPerSec = NORMAL.msgsPerSec;
+        const ws = new WebSocket(url);
+        const closed = new Promise<number>(res => ws.on('close', code => res(code)));
+        await new Promise(r => ws.on('open', r));
+        for (let i = 0; i < 100; i++) ws.send('{}');
+        expect(await withTimeout(closed, 3000, 'flood')).toBe(1008);
+        LIMITS.msgsPerSec = 100_000;
+    });
+
+    it('koneksi ke-21 dari satu IP ditolak (1013)', async () => {
+        const open = Array.from({ length: 20 }, () => new WebSocket(url));
+        await Promise.all(open.map(w => new Promise(r => w.on('open', r))));
+        const extra = new WebSocket(url);
+        const code = await withTimeout(new Promise<number>(res => extra.on('close', c => res(c))), 3000, 'cap');
+        expect(code).toBe(1013);
+        open.forEach(w => w.close());
     });
 });

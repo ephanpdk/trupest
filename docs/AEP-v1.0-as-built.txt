@@ -1,0 +1,298 @@
+TRUPEST — ARCHITECTURE EXECUTION PLAN (AEP) v1.0
+EDISI AS-BUILT (disesuaikan dengan project saat ini)
+Referensi: SRS v2.6 as-built, GDD v2.6
+Branch kode: rombak-ringan (repo ephanpdk/trupest)
+Sinkron dengan kode per 16 Nov 2026 (setelah commit 4208bb1 dan Fase 0-2).
+
+======================================================================
+0. CARA MEMBACA
+======================================================================
+AEP asli menggambarkan TARGET produksi (mikroservis, Redis, Postgres,
+Kubernetes, 5.000 match). Project sekarang adalah demo 1-4 pemain dengan
+satu proses. Dokumen ini memuat dua hal berdampingan:
+  - SEKARANG : arsitektur yang benar-benar berjalan.
+  - TARGET   : isi AEP asli yang dipertahankan sebagai tujuan.
+  - JALUR    : urutan langkah dari SEKARANG ke TARGET.
+Tag: [ADA] sudah jalan, [BERBEDA] ada dalam bentuk lain, [SEBAGIAN],
+[BELUM] belum ada.
+
+======================================================================
+1. HIGH-LEVEL GOALS & CONSTRAINTS
+======================================================================
+Prinsip inti: server-authoritative, deterministik, dapat direplay.
+  - Server-authoritative ......................................... [ADA]
+  - Deterministik (seed HMAC, engine murni sinkron) .............. [ADA]
+  - 100% replayable dari event log ............................... [BELUM]
+    (engine siap, event log belum ada)
+SLO latensi (RTT p95 < 200 ms, trick < 200 ms, fan-out < 100 ms):
+  belum diukur. Tidak ada metrik.                                [BELUM]
+Skala target 5.000 match: tidak diuji. Batas kode 500 room/proses.
+Tech stack:
+  Game server Node.js + TypeScript, tipe dibagi dengan frontend
+  (shared/types.ts) ............................................. [ADA]
+  Go untuk layanan berat ........................................ [BELUM]
+  Redis Cluster ................................................. [BELUM]
+  PostgreSQL .................................................... [BELUM]
+  Kubernetes .................................................... [BELUM]
+
+======================================================================
+2. ARSITEKTUR
+======================================================================
+2.0 SEKARANG: monolit ringan
+
+  Browser (Vue 3) --WebSocket /game--> Fastify (app.ts)
+                                         |
+                                  RoomRegistry (manager.ts, maks 500)
+                                         |
+                                   Room (room.ts)  x N
+                                    - anggota & token sesi
+                                    - 1 timer per room
+                                    - bot Tier A (ai/bot.ts)
+                                         |
+                                   MatchState (engine/*)  murni & sinkron
+
+Satu proses Node.js. Semua state di memori. GET /health untuk cek hidup.
+Dev: server port 3001 (npm run dev di server/), client Vite (npm run dev
+di client/). Run: tsx langsung, tanpa build step server.
+
+Peta modul AEP -> kode:
+  ws-gateway        -> network/protocol.ts + app.ts (zod, identitas terikat
+                       koneksi, heartbeat ping/pong 5 dtk, batas 20 koneksi
+                       per IP dan 30 pesan/dtk). JWT, rate limit per opcode,
+                       gRPC: [BELUM]
+  matchmaker        -> tidak ada. Pemain berbagi kode room manual.   [BELUM]
+  match-coordinator -> RoomRegistry + Room.begin()  (buat match, isi bot,
+                       acak kursi) .................................. [BERBEDA]
+  match-worker      -> Room + MatchState. Peran sama (state otoritatif,
+                       timer, legalMask, hidden trump) tetapi timer
+                       per room, bukan tick 20 Hz global; tidak ada
+                       Redis stream/snapshot ..................... [BERBEDA]
+  ai-worker         -> bot Tier A inline di ai/bot.ts. Tier B/C dan
+                       gRPC .................................... [BELUM]
+  persistence-writer-> tidak ada .................................. [BELUM]
+  replay-service    -> tidak ada .................................. [BELUM]
+  anti-abuse        -> tidak ada; hanya validasi aksi di server ... [BELUM]
+
+2.1 Gateway -> lihat peta di atas.
+2.2 Matchmaking [BELUM].
+2.3 Coordinator [BERBEDA]: Room.start() (host) / afterJoin() (otomatis di 4).
+2.4 Match Worker
+  - Stateful in-memory ........................................... [ADA]
+  - Tick 20 Hz ................................................. [BERBEDA]
+    Pengganti: setTimeout per room untuk jeda bot (700 ms), freeze trick
+    (1800 ms), batas giliran manusia (25 dtk), ronde berikut (30 dtk).
+    Alasan: tidak perlu menyapu semua match tiap 50 ms; CPU idle = 0.
+    Kapan perlu tick: saat timer ingin disatukan untuk observabilitas
+    atau saat match dipindah antar worker.
+  - Determinisme dengan serverSeed ............................... [ADA]
+  - Output Event Log: MatchState.events (seq dari 0) ditulis ke JSONL
+    saat match selesai (MATCH_LOG_DIR) ........................ [SEBAGIAN]
+    Redis Stream dan snapshot per trick ....................... [BELUM]
+  - Multiplexing (banyak match per proses) ..................... [ADA]
+    Satu proses sudah menjalankan banyak Room di event loop.
+2.5 AI: Tier A inline [ADA]. Pool Tier B/C [BELUM].
+2.6-2.8 Persistence/Replay/Anti-abuse [BELUM].
+
+======================================================================
+3. DATA OWNERSHIP & SCHEMAS
+======================================================================
+SEKARANG: seluruhnya di memori proses.
+  Room.members : Map nama -> {token, conn, timeouts, aiControlled}
+  Room.match   : MatchState (pemain, tangan, bid, trick, skor, seed)
+  RoomRegistry : Map roomId -> Room
+Tidak ada Redis key, tabel Postgres, atau blob storage.
+TARGET (tidak berubah): tabel Redis session:{playerId}, queue:...,
+match:{id}:snapshot, match_stream:{id}, pair_count, player_meta; Postgres
+match_log, event_store, player_rank_history, player_misconduct_log;
+S3/GCS untuk arsip. DDL ada di SRS 21.2.
+
+======================================================================
+4. MATCH WORKER (as-built)
+======================================================================
+Lifecycle:
+  1. Room dibuat saat JOIN_GAME pertama untuk matchId.
+  2. begin(): peserta manusia + bot (kursi kosong), kursi diacak,
+     MatchState dibuat dengan serverSeed (crypto.randomBytes), seedHash
+     dikirim sejak awal.
+  3. Loop berbasis peristiwa: aksi pemain -> afterChange() ->
+     schedule() (pasang timer berikut) -> broadcast snapshot ->
+     TRICK_RESOLVE bila ada.
+State: MatchState murni sinkron; tanpa I/O sehingga mudah dites.
+Persistensi: tidak ada. Failover: tidak ada (proses mati = match hilang).
+API ke gateway: pemanggilan metode langsung (join, start, action, leave).
+Validasi sequenceId/nonce: [BELUM].
+
+Rincian penjadwalan (Room.schedule):
+  - Freeze trick dua tahap: kartu ke-4 jatuh -> 1200 ms trump masih
+    tertutup -> dibuka bersamaan (TRICK_RESOLVE) -> 2600 ms -> trick
+    berikutnya.
+  - Fase FINISHED (ronde): lanjut otomatis setelah 30 dtk atau NEXT_ROUND.
+  - Giliran bot: botDelayMs lalu applyBotMove.
+  - Giliran manusia: batas 25 dtk (turnEndsAt); habis -> autoPlay.
+  - 3 timeout beruntun -> aiControlled.
+  Snapshot tiap pemain membawa turnMsLeft dan turnMsTotal (relatif).
+
+======================================================================
+5. WEBSOCKET & MESSAGING CONTRACT [BERBEDA]
+======================================================================
+Kontrak asli memakai {op,...} dan {evt,seq,...}. As-built memakai
+{type,payload}. Sumber kebenaran: shared/types.ts.
+
+Client -> Server
+  { "type": "JOIN_GAME",  "payload": { "matchId": "...", "playerId": "Budi", "token": "..." } }
+  { "type": "START_GAME", "payload": { "matchId": "..." } }
+  { "type": "PLAYER_ACTION", "payload": { "matchId": "...",
+      "action": "BID|PASS|SELECT_TRUMP|PLAY_CARD|NEXT_ROUND|PLAY_AGAIN|CHOOSE_TEAM",
+      "data": { "amount": 8, "suit": "S", "cardIndex": 3, "team": "A" } } }
+Server -> Client
+  { "type": "JOINED", "payload": { "roomId", "playerId", "token" } }
+  { "type": "GAME_UPDATE", "payload": GameStateSnapshot }
+  { "type": "TRICK_RESOLVE", "payload": { "cards", "starter", "winner", "winningCard" } }
+  { "type": "ACTION_ERROR", "payload": { "msg": "..." } }
+
+Kartu ditunjuk lewat cardIndex pada tangan milik server (bukan string
+"S:A"). Hidden trump: kartu trump di meja dikirim {suit, rank:'?',
+isHidden:true} sampai trick selesai.
+Sequence & nonce: [BELUM]. Event "heartbeat" aplikasi: tidak ada, yang
+dipakai ping/pong tingkat protokol WebSocket.
+Kode penutupan: 4000 = sesi digantikan koneksi baru.
+
+======================================================================
+6. PERSISTENCE & EVENT LOG FLOW [SEBAGIAN]
+======================================================================
+Alur asli (XADD -> consumer group -> batch Postgres/S3) belum dibangun.
+Langkah pertama SUDAH ada (M1, M2): MatchState.events mencatat masukan
+(BID, PASS, TRUMP, PLAY, REVEAL, TRICK_END, NEXT_ROUND) dengan seq mulai
+0; saat match selesai Room menulis JSONL ke MATCH_LOG_DIR (baris 1 =
+header seed/pemain/hasil). replay() di engine/replay.ts memainkan ulang
+lewat engine yang sama; `npm run verify-log -- <file>` membandingkan hasil
+(keluar kode 1 bila beda). Tes: 5 seed identik, seq bolong ditolak, hasil
+yang diubah ditolak. Belum: Redis Stream, consumer group, Postgres, S3.
+
+======================================================================
+7. AI INTEGRATION & BUDGET
+======================================================================
+Tier A inline [ADA] (decideBid, decideTrump, decideCard, botMove,
+applyBotMove). Fallback timeout manusia memakai logika kartu legal
+terendah di Room.autoPlay.
+Tier B/C, gRPC, anggaran 120/300 ms, telemetri aiInferTimeMs: [BELUM].
+
+======================================================================
+8. DEPLOYMENT TOPOLOGY
+======================================================================
+SEKARANG: satu proses, jalankan dengan `npm run dev` / `npm start` di
+server/ dan Vite di client/. Dokumen Replit: .replit dan replit.md.
+Deploy satu proses: build client (client/dist), server menyajikannya lewat
+@fastify/static, satu alamat untuk halaman dan WebSocket /game.
+Variabel env: PORT, SESSION_SECRET (tetap), TRUST_PROXY=1 di belakang
+proxy, MATCH_LOG_DIR, BOT_DELAY_MS, REVEAL_DELAY_MS, TRICK_RESOLVE_MS,
+TURN_LIMIT_MS, NEXT_ROUND_MS. File Docker/Replit sudah dihapus dari repo.
+TARGET (Node Pool A/B/C, HPA, multiplexing 10-50 match/pod): [BELUM].
+Catatan penting untuk skala horizontal: karena state di memori, satu
+room harus selalu dirutekan ke proses yang sama (sticky by roomId)
+sampai state dipindah ke Redis.
+
+======================================================================
+9. CI/CD & RELEASE [BELUM]
+======================================================================
+Monorepo: [ADA] (client, server, shared).
+CI: .github/workflows/ci.yml [ADA]: tsc --noEmit + npm test (server) dan
+build client, tiap push dan PR. Tes replay deterministik ikut berjalan di
+npm test (replay.test.ts). Replay dari log match lama, build image,
+canary: [BELUM].
+
+======================================================================
+10. OBSERVABILITY & SLOs [BELUM]
+======================================================================
+Yang ada: GET /health (status, uptime, jumlah room). Prometheus,
+active_matches_count, trick_process_time_ms, alert P0/P1: tidak ada.
+
+======================================================================
+11. SECURITY & ANTI-CHEAT
+======================================================================
+Ada:
+  - Server otoritatif: legalMask, PASS, pemenang trick, skor.     [ADA]
+  - Validasi zod untuk semua pesan masuk.                          [ADA]
+  - Identitas terikat koneksi (playerId di payload diabaikan).    [ADA]
+  - Token sesi HMAC + timingSafeEqual, pencegah pencurian nama.   [ADA]
+  - Rank trump dan tangan lawan tidak pernah dikirim ke client.   [ADA]
+  - Heartbeat putus koneksi mati.                                   [ADA]
+  - Batas 20 koneksi per IP dan 30 pesan per detik per koneksi.     [ADA]
+  - Client memeriksa serverSeed terhadap seedHash di akhir match.   [ADA]
+Belum: JWT berumur pendek, rate limit per opcode (mis. play_card
+1/detik), SequenceID + nonce di pesan WebSocket, detektor pair_count
+dan anomali latensi.
+
+======================================================================
+12. TEST STRATEGY
+======================================================================
+  1. Unit (evaluate_main_suit, isEligibleBid8, legalMask, skor,
+     hidden trump, shuffle deterministik) ....................... [ADA]
+  2. Integrasi: Room + bot sampai match selesai; E2E WebSocket
+     sungguhan di port acak ..................................... [ADA]
+  3. Load test k6 ............................................... [BELUM]
+  4. Chaos ...................................................... [BELUM]
+  5. Replay verification: tes replay lokal dan CLI verify-log ... [SEBAGIAN]
+     (belum menjalankan ulang 1000 match lama di engine versi baru)
+Total 56 tes vitest. Jalankan: cd server && npm test.
+Verifikasi UI: Playwright manual (tidak masuk repo).
+
+======================================================================
+13. IMPLEMENTATION MILESTONES (diperbarui)
+======================================================================
+Sprint 0 AEP sign-off, repo setup ............... SEBAGIAN (repo & monorepo
+                                                  ada; infra & DB tidak)
+Sprint 1 Core engine, bidding, trick, legalMask,
+         shuffle deterministik .................. SELESAI
+Sprint 2 WebSocket contract, gateway, freeze .... SELESAI (versi ringan,
+                                                  tanpa gRPC/sequence)
+Sprint 2b Demo 1-4 pemain, UI satu layar,
+          hidden trump terbuka di kartu ke-4 .... SELESAI [BARU]
+Sprint 2c Pilih tim, bid maks 10, freeze 2 tahap,
+          batas koneksi/pesan, rapikan arsitektur  SELESAI [BARU]
+Sprint 2d Event log + replay lokal, CI, deploy
+          satu proses ........................... SELESAI [BARU]
+Sprint 3 Persistence writer, Redis Streams,
+         replay dasar ........................... BELUM
+Sprint 4 Matchmaker, anti-abuse ................. BELUM
+Sprint 5 AI integrasi Tier B, takeover .......... SEBAGIAN (takeover
+                                                  setelah 3 timeout ada)
+Sprint 6 Load test, autoscaling, dashboard ...... BELUM
+Sprint 7 Peluncuran ............................. BELUM
+
+======================================================================
+14. RISKS & MITIGATIONS (diperbarui)
+======================================================================
+1. Pod explosion: tidak relevan sekarang; multiplexing sudah menjadi
+   bawaan desain (banyak Room per proses).
+2. Single point of failure: SEKARANG state hanya di memori, jadi risiko
+   ini NYATA. Mitigasi cepat: tulis event log ke disk per trick; jangka
+   panjang Redis + snapshot per trick.
+3. AI latency: tidak relevan untuk Tier A (sinkron, murah).
+4. Desync: dimitigasi karena setiap perubahan mengirim snapshot penuh,
+   sehingga client selalu pulih pada update berikutnya. Hash state
+   berkala: [BELUM].
+5. [BARU] Secret & kredensial: SESSION_SECRET acak per start membuat
+   token reconnect tidak berlaku setelah restart; setel lewat env.
+   JWT_SECRET lama yang pernah ada di repo sebaiknya dirotasi.
+6. [BARU] Penumpukan timer: tiap Room memegang timer; pastikan destroy()
+   dipanggil saat room kosong (sudah lewat onEmpty/roomIdleMs 10 menit).
+7. [BARU] Tidak ada rate limit: satu klien dapat membanjiri aksi.
+   Tambahkan batas per koneksi sebelum dibuka ke publik.
+
+======================================================================
+15. JALUR MIGRASI KE TARGET (disarankan, berurutan)
+======================================================================
+M1 [SELESAI] Event log lokal (events -> JSONL) dengan seq.
+M2 [SELESAI] Tes replay + CLI verify-log; berjalan di CI lewat npm test.
+M3 [SELESAI] CI (typecheck + test + build client).
+M4 [SEBAGIAN] Rate limit per koneksi selesai; validasi sequenceId di
+   pesan WebSocket belum.
+M5 Auth sungguhan (JWT) menggantikan nama bebas.
+M6 Redis: simpan snapshot per trick dan peta roomId -> proses; recovery.
+M7 Postgres: match_log, persistence-writer memakai Redis Streams.
+M8 Pisahkan gateway dari worker (gRPC) hanya jika satu proses tidak
+   cukup; ukur dulu dengan k6.
+M9 Matchmaker, anti-abuse, AI Tier B/C.
+Prinsip: setiap langkah harus lulus semua tes yang ada (56 saat ini) dan tidak mengubah
+kontrak shared/types.ts tanpa memperbarui SRS Bagian 6 dan 8.
