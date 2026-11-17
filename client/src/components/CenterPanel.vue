@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // Panel tengah meja: isinya berganti mengikuti fase dari server. Client hanya merender dan mengirim aksi.
-import { computed } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useGameStore } from '../stores/game';
 import CardFace from './CardFace.vue';
 
@@ -46,6 +46,16 @@ const lastBidder = computed(() => {
   b.forEach((v, i) => { if (typeof v === 'number' && (best === -1 || v > (b[best] as number))) best = i; });
   return best === -1 ? null : best;
 });
+
+// SRS 4.1: di akhir match pemain bisa memeriksa sendiri bahwa serverSeed cocok dengan hash yang dikirim di awal.
+// crypto.subtle hanya ada di https atau localhost; kalau tidak ada, pemeriksaan dilewati.
+const seedOk = ref<boolean | null>(null);
+watch(() => gs.value.serverSeed, async seed => {
+  seedOk.value = null;
+  if (!seed || !globalThis.crypto?.subtle) return;
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(seed));
+  seedOk.value = [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('') === gs.value.seedHash;
+}, { immediate: true });
 
 const round = computed(() => gs.value.lastRound);
 const myWins = computed(() => gs.value.teamScores[myTeam.value]);
@@ -130,7 +140,12 @@ const theirWins = computed(() => gs.value.teamScores[1 - myTeam.value]);
       <template v-if="gs.matchOver">
         <div class="mt-2 text-lg font-black text-yellow-300">🏆 {{ teamLabel(gs.matchWinner ?? 0) }} memenangkan match</div>
         <button @click="act('PLAY_AGAIN')" class="mt-3 w-full min-h-11 rounded-lg font-bold bg-emerald-600 hover:bg-emerald-500 active:scale-95 transition">Match baru</button>
-        <div v-if="gs.serverSeed" class="mt-2 text-[10px] text-white/50 break-all">Seed server: {{ gs.serverSeed }}</div>
+        <div v-if="gs.serverSeed" class="mt-2 text-[10px] text-white/50 break-all">
+          Seed server: {{ gs.serverSeed }}
+          <div v-if="seedOk !== null" :class="seedOk ? 'text-emerald-300' : 'text-rose-300 font-bold'">
+            {{ seedOk ? '✓ Cocok dengan hash di awal match' : '✗ Tidak cocok dengan hash di awal match' }}
+          </div>
+        </div>
       </template>
       <template v-else>
         <button @click="act('NEXT_ROUND')" class="mt-3 w-full min-h-11 rounded-lg font-bold bg-emerald-600 hover:bg-emerald-500 active:scale-95 transition">Lanjut ronde</button>

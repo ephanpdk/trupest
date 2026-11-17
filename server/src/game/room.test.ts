@@ -32,7 +32,7 @@ describe.each([1, 2, 3, 4])('Room: %i pemain manusia + bot sampai match selesai'
             expect(r.success).toBe(true);
             room.afterJoin();
         }
-        if (n < 4) expect(room.start('Human0').success).toBe(true); // host mulai, sisa kursi = bot
+        expect(room.start('Human0').success).toBe(true); // host mulai, sisa kursi = bot
 
         const finals = await withTimeout(Promise.all(players.map(p => p.done)), 20_000, `room ${n}`);
 

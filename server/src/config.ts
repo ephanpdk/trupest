@@ -19,6 +19,8 @@ export const TIME = {
 };
 
 export const MAX_ROOMS = 500;
+// Folder log match (JSONL, untuk replay & audit). Kosong = tidak menulis log.
+export const MATCH_LOG_DIR = process.env.MATCH_LOG_DIR || '';
 // Batas penyalahgunaan: tanpa ini satu skrip bisa membuka 500 room kosong. Di belakang proxy, set Fastify trustProxy agar req.ip benar.
 export const LIMITS = { connPerIp: 20, msgsPerSec: 30 }; // objek biasa supaya tes bisa menaikkannya
 

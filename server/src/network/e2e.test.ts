@@ -46,7 +46,7 @@ describe.each([1, 2, 3, 4])('WebSocket e2e: %i pemain', n => {
         await Promise.all(clients.map(c => c.opened));
         await new Promise(r => setTimeout(r, 100));
 
-        if (n < 4) clients[0].ws.send(JSON.stringify({ type: 'START_GAME', payload: { matchId: room } })); // host = pemain pertama
+        clients[0].ws.send(JSON.stringify({ type: 'START_GAME', payload: { matchId: room } })); // host = pemain pertama
 
         const finals = await withTimeout(Promise.all(clients.map(c => c.player.done)), 20_000, `e2e ${n}`);
         finals.forEach(f => {

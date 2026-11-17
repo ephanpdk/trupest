@@ -1,0 +1,493 @@
+TRUPEST — SYSTEM REQUIREMENTS SPECIFICATION (SRS) v2.6
+EDISI AS-BUILT (disesuaikan dengan project saat ini)
+Basis: SRS v2.6 asli. Penomoran bagian dipertahankan.
+Branch kode: rombak-ringan (repo ephanpdk/trupest)
+Status dokumen: sinkron dengan kode per 16 Nov 2026 (commit setelah 4208bb1). Tes terakhir: 56 lulus.
+
+======================================================================
+0. CARA MEMBACA DOKUMEN INI
+======================================================================
+Setiap bagian diberi tag status terhadap kode yang ada sekarang:
+
+  [SESUAI]    Sudah diimplementasikan sesuai SRS asli.
+  [BERBEDA]   Ada, tetapi bentuknya berbeda dari SRS asli. Perbedaan dijelaskan.
+  [SEBAGIAN]  Baru sebagian yang jalan.
+  [BELUM]     Belum ada di kode. Tetap menjadi target (roadmap).
+  [BARU]      Ada di kode tetapi tidak ada di SRS asli.
+
+Aturan "setiap deviasi adalah defect" (SRS 1.1) diganti: deviasi yang
+tercantum di Bagian 0.2 adalah KEPUTUSAN SADAR untuk fase demo dan sudah
+disetujui. Deviasi lain di luar daftar tetap dianggap defect.
+
+----------------------------------------------------------------------
+0.1 Ringkasan as-built
+----------------------------------------------------------------------
+- Satu proses Node.js (Fastify 4 + @fastify/websocket), tanpa database.
+- State match hidup di memori, satu objek Room per room, satu timer per room.
+- Pemain 1-4 manusia. Kursi kosong diisi bot (Tier A). Match dimulai host
+  dengan tombol Mulai (bot mengisi sisanya). Tidak ada auto-start.
+- Client: Vue 3 + Pinia + Tailwind. Client hanya merender dan mengirim aksi.
+- Kontrak server-client ada di shared/types.ts, divalidasi zod di server.
+- Layar bermain tunggal: bidding dan pilih trump tampil di panel tengah meja.
+- Mekanik khas TRUPEST: kartu trump yang dimainkan tampil tertutup (hanya
+  punggung kartu) di meja sampai kartu ke-4 jatuh, lalu semua dibuka.
+
+----------------------------------------------------------------------
+0.2 Daftar deviasi yang disengaja
+----------------------------------------------------------------------
+D1  Frontend: Vue 3, bukan React (SRS 2.1). Aturan "client tidak punya rule
+    game" tetap dipenuhi.
+D2  Auth: tidak ada JWT/OAuth. Pemain masuk dengan nama (1-20 karakter).
+    Server mengeluarkan token sesi HMAC-SHA256 per (room, nama) yang dipakai
+    untuk reconnect. Login ganda dengan token sama menutup koneksi lama
+    (kode WebSocket 4000, alasan "replaced"). (SRS 3.1)
+D3  Penyimpanan: tidak ada Redis dan PostgreSQL. State hanya di memori;
+    restart server menghapus semua room. (SRS 2.1, 2.2, 4.8.3, 9.3, 16)
+D4  Timer: tidak ada tick global 20 Hz. Tiap Room memakai setTimeout sendiri
+    (jeda bot, freeze trick, batas giliran, ronde berikutnya). Kebutuhan
+    fungsional (timeout, freeze, takeover) tetap terpenuhi. (SRS 4.10.1)
+D5  Pesan WebSocket: bentuk {type, payload}. Server tidak mengirim event
+    terpisah turn_update/card_played/bidding_update. Server mengirim
+    GAME_UPDATE (snapshot lengkap per pemain) setiap ada perubahan, plus
+    TRICK_RESOLVE. Snapshot berisi legalMask, activePlayer, leadSuit, bids.
+    (SRS 6.1, 8.3)
+D6  Hidden trump: selalu aktif, tidak ada opsi Strict/Loose. Kartu trump
+    yang dimainkan (termasuk kartu pembuka) tampil tertutup sampai kartu
+    ke-4 ada di meja. (SRS 4.6, 12)
+D7  Ready prompt: tidak ada pesan ready_prompt/READY. Setelah ronde selesai
+    server menunggu 30 detik lalu lanjut otomatis; pemain boleh menekan
+    NEXT_ROUND lebih cepat. Setelah match selesai pemain menekan PLAY_AGAIN
+    untuk match baru. Tidak ada kick/disband. (SRS 4.8.2)
+D8  Disconnect: tidak ada grace 60 detik, tidak ada lockout 5 menit, tidak
+    ada penalti MMR/ban. Pemain putus tidak langsung diganti: giliran
+    otomatis dimainkan saat timer 25 detik habis; setelah 3 kali timeout
+    pemain ditandai aiControlled (bot memegang kursi). Masuk lagi dengan
+    token yang sama mengembalikan kendali. (SRS 6.3, 11)
+D9  newAccount: semua pemain manusia diperlakukan newAccount = true
+    (karena tidak ada akun/riwayat). Tiap manusia punya 1 override PASS per
+    match. (SRS 4.3.2)
+D10 Dealer ronde berikutnya: ronde 1 dari roundSeed[0] % 4; ronde 2 dan
+    seterusnya rotasi (dealer + 1) % 4. (SRS 3.3, Fase 5 "Dealer Rotation")
+D11 Pemenang bid pertama saat PASS ALL: pemain pertama yang bicara
+    (dealer + 1), karena semua PASS dan dia yang PASS pertama.
+D12 isEligibleBid8 di kode menerima (hand) saja; logika override ada di
+    MatchState.playerPass (passOverridesLeft, newAccount). Hasilnya setara
+    dengan fungsi 5-parameter di SRS 21.4.
+D13 Sisa waktu giliran dikirim relatif (turnMsLeft, turnMsTotal) agar jam
+    client tidak perlu sinkron. (SRS 4.10.2, 6.4.1)
+D14 Bid maksimal 10 (SRS: 8-13). Tabel skor 11-13 belum dipakai. Konstanta
+    MAX_BID di engine/state.ts; snapshot membawa maxBid. (SRS 4.3, 4.7)
+D15 Ronde berakhir begitu satu tim mencapai targetnya: declarer = bid trick,
+    lawan = 14 - bid trick (bid 8: 8 vs 6). Sisa kartu tidak dimainkan.
+    Hasil akhir sama dengan SRS 4.7; hanya lebih cepat. (SRS 4.5, 4.7)
+D16 Pemilihan tim: pemain memilih Tim A, Tim B, atau acak di waiting room
+    (aksi CHOOSE_TEAM, maks 2 per tim). Tim A = kursi 0 dan 2, Tim B = kursi
+    1 dan 3, jadi rekan selalu berhadapan. Pemain tanpa pilihan dan bot
+    mengisi kursi sisa secara acak. Tidak ada auto-start di 4 pemain: host
+    menekan Mulai. (SRS 3.2, 3.3, 12)
+D17 Freeze trick dua tahap. Setelah kartu ke-4 jatuh, semua kartu tampil
+    (trump, termasuk kartu ke-4, tetap tertutup) selama revealDelayMs =
+    1200 ms. Lalu semua trump dibuka bersamaan dan pemenang tampil
+    (TRICK_RESOLVE dikirim di saat ini) selama trickResolveMs = 2600 ms
+    sebelum trick berikutnya. Snapshot membawa tableFrozen. (SRS 4.5.2, 4.6)
+D18 Batas penyalahgunaan: maks 20 koneksi per IP (ditutup 1013), maks 30
+    pesan per detik per koneksi (ditutup 1008). Nilai di LIMITS (config.ts).
+    TRUST_PROXY=1 agar req.ip benar di belakang proxy.
+D19 Log kejadian dan replay lokal: MatchState mencatat masukan (BID, PASS,
+    TRUMP, PLAY, REVEAL, TRICK_END, NEXT_ROUND) dengan seq mulai 0. Dengan
+    MATCH_LOG_DIR diisi, match selesai ditulis ke JSONL; replay() dan
+    `npm run verify-log` memainkan ulang dan membandingkan hasil.
+    Client memeriksa serverSeed terhadap seedHash di akhir match.
+
+======================================================================
+1. INTRODUCTION
+======================================================================
+1.1 Purpose [BERBEDA]
+Dokumen ini mendefinisikan sistem TRUPEST yang ADA sekarang (demo 1-4
+pemain) dan target SRS v2.6 yang BELUM dibangun. Pembaca harus melihat tag
+status di tiap bagian.
+
+1.2 Scope
+Tercakup sekarang: logika game server, state machine, penegakan aturan,
+protokol WebSocket, heartbeat, timer giliran, freeze trick, bot Tier A,
+shuffle yang dapat diverifikasi, UI client responsif.
+Belum tercakup (target): matchmaking & MMR, replay engine, spectator,
+persistensi (Redis/Postgres), AI Tier B/C, room kustom, anti-abuse,
+latency tolerance, telemetri, deployment terskala.
+Tidak tercakup (sama dengan SRS asli): desain UI final (GDD), monetisasi,
+admin tools.
+
+1.3 Definitions
+Trick, Declarer, Hidden Trump, AI Takeover: sesuai SRS asli.
+Snapshot (as-built): objek GameStateSnapshot yang dikirim ke tiap client,
+BUKAN snapshot Redis.
+newAccount (as-built): selalu true untuk manusia (lihat D9).
+Tick: tidak dipakai (lihat D4).
+
+======================================================================
+2. SYSTEM OVERVIEW
+======================================================================
+2.1 Architecture [BERBEDA]
+- Model: server-authoritative. Client adalah terminal bodoh.            [SESUAI]
+- Frontend: Vue 3 + Pinia + Tailwind 3, build dengan rolldown-vite.     [BERBEDA D1]
+- Backend: Node.js + TypeScript (tsx), Fastify 4, zod, vitest.          [SESUAI]
+- Persistent DB (PostgreSQL): tidak ada.                                [BELUM]
+- Hot DB (Redis): tidak ada.                                            [BELUM]
+- Backup snapshot per trick: tidak ada.                                 [BELUM]
+Struktur repo: client/, server/, shared/ (tipe kontrak), docs/.
+
+2.2 High-Level Data Flow (as-built)
+[Client Vue] <-> WebSocket /game <-> [Fastify app.ts] -> [RoomRegistry]
+-> [Room] -> [MatchState (engine murni sinkron)] + [bot Tier A]
+Tidak ada load balancer, RPC internal, Redis, atau ETL.
+Endpoint lain: GET /health -> {status, uptime, rooms}.
+
+======================================================================
+3. FUNCTIONAL REQUIREMENTS
+======================================================================
+3.1 Player Authentication [BERBEDA D2]
+- Handshake: client mengirim JOIN_GAME {matchId, playerId(nama), token?}.
+- Nama divalidasi regex ^[\p{L}\p{N} _.-]{1,20}$.
+- Nama sudah dipakai: ditolak NAME_TAKEN kecuali token valid (reconnect).
+- Token = HMAC_SHA256(SESSION_SECRET, "roomId:nama"), dibandingkan dengan
+  timingSafeEqual. SESSION_SECRET dari env; kosong = acak tiap start
+  (semua token lama tidak berlaku setelah restart).
+- Login ganda: koneksi lama ditutup (4000 "replaced").
+- Identitas terikat ke koneksi; field playerId di aksi lanjutan diabaikan.
+- OAuth / username-password / JWT: [BELUM].
+
+3.2 Room System [SEBAGIAN]
+- Room dibuat otomatis saat JOIN_GAME dengan matchId baru (maks 500 room;
+  maks 20 koneksi per IP, D18).
+  Tidak ada beda Public/Private. Kode room = matchId.                   [BERBEDA]
+- Maks 4 manusia. Room penuh: ROOM_FULL. Match sudah jalan dan nama baru:
+  GAME_STARTED.
+- Host = anggota pertama yang join. Host menekan START_GAME; bot mengisi
+  kursi kosong. Pilihan tim: CHOOSE_TEAM (D16).                          [BARU]
+- Seat randomizer: kursi diacak server saat mulai, dengan menghormati
+  pilihan tim (engine/seats.ts seatPlan).                                 [SESUAI]
+- Room kosong (tidak ada koneksi) dihapus setelah roomIdleMs = 10 menit.
+- Kick idle 60 detik di lobby: [BELUM]. Vote kick: [BELUM].
+- Keluar di waiting room melepas kursi; keluar saat match tidak.
+
+3.3 Match Lifecycle [SESUAI dengan D10]
+1. Init: 1-4 manusia, host menekan Mulai.
+2. Setup: shuffle HMAC, bagi kartu.
+3. Dealer ronde 1: roundSeed = HMAC_SHA256(serverSeed, matchId:round);
+   dealerIndex = roundSeed[0] % 4. Ronde berikut: rotasi.
+4. BIDDING -> 5. TRUMP_SELECTION -> 6. TRICK (1-13) ->
+7. SCORING -> 8. FINISHED (ronde atau match selesai) -> ronde berikutnya
+   otomatis atau match baru lewat PLAY_AGAIN.
+Fase di snapshot: WAITING, DEALING, BIDDING, TRUMP_SELECTION, TRICK,
+SCORING, FINISHED.
+
+======================================================================
+4. GAME LOGIC REQUIREMENTS
+======================================================================
+4.1 Shuffle (Provably Fair & Deterministic) [SEBAGIAN]
+- serverSeed dibuat dengan crypto.randomBytes (CSPRNG).                 [SESUAI]
+- Server mengirim seedHash sejak awal (snapshot.seedHash); serverSeed
+  asli dikirim di snapshot saat match selesai (snapshot.serverSeed).     [SESUAI]
+- Urutan kartu: Fisher-Yates yang digerakkan HMAC dari roundSeed.        [SESUAI]
+- ClientSeed: [BELUM] (tidak ada kontribusi seed dari client).
+- Penggunaan ulang seed untuk replay: bisa secara teknis (fungsi murni di
+  engine/deck.ts), tetapi replay engine belum ada.
+
+4.2 Dealing [SESUAI]
+52 kartu, 13 per pemain, searah jarum jam, kartu pertama ke kiri dealer
+(dealer + 1).
+
+4.3 Bidding Logic [SESUAI dengan D9, D12]
+4.3.1 Satu putaran. Aksi: BID (8-10, D14) atau PASS. Tiap bid harus lebih
+      tinggi dari bid saat ini.
+4.3.2 Anti-pass: server menolak PASS dengan pesan
+      "BID_FORCED_MIN_8: tangan terlalu kuat untuk PASS" bila tangan layak
+      bid 8 dan override habis. Quota override: 1 per match per manusia
+      (passOverridesLeft), reset saat match baru. Snapshot membawa canPass
+      untuk tombol; keputusan tetap di server.
+      Opsi override per tipe room (Ranked/Public/Custom): [BELUM]
+      (kini berlaku sama di semua room).
+4.3.3 Evaluasi main suit: suit dengan >= 4 kartu; urutan pembanding:
+      rankTotal, cardCount, highCardCount, prioritas S > H > D > C.      [SESUAI]
+4.3.4 Layak Bid 8: ada main suit, main.rankTotal >= 40 dan total kartu
+      tinggi (A,K,Q,J,10) di tangan >= 5. Konstanta 40 dan 5 ditulis
+      langsung di engine/bidding.ts (bukan objek BID8).                  [SESUAI]
+4.3.5 PASS ALL: kontrak 7/7, declarer = dealer + 1 (pemain pertama
+      yang PASS).                                                        [SESUAI]
+
+4.4 Trump Selection [SESUAI]
+Declarer memilih suit sebelum trick 1 (SELECT_TRUMP). Tidak bisa diubah.
+Bot declarer memilih lewat decideTrump.
+
+4.5 Trick Engine & Freeze [SESUAI dengan D5]
+4.5.1 legalMask dihitung server (engine/trick.ts getLegalMask) dan dikirim
+      hanya ke pemain yang sedang giliran di fase TRICK (selain itu null).
+      Kartu ilegal ditolak: "ERROR_ILLEGAL_PLAY: wajib mengikuti suit".
+      Client hanya menonaktifkan kartu sesuai mask.
+4.5.2 Freeze dua tahap (D17): kartu ke-4 diterima -> tahap 1 (revealDelayMs
+      1200 ms, trump masih tertutup) -> tahap 2 (trump dibuka, trickResolve
+      terisi, TRICK_RESOLVE dikirim sekali, trickResolveMs 2600 ms) ->
+      finishTrick. Selama freeze snapshot.tableFrozen = true dan input
+      ditolak. Client tidak menebak pemenang.
+4.5.3 Resolusi: trump tertinggi menang; jika tidak ada trump, kartu
+      tertinggi suit lead menang (engine/trick.ts resolveTrick).
+
+4.6 Hidden Trump Processing [BERBEDA D6]
+- Setiap kartu trump di meja dikirim ke client sebagai {suit, rank:'?',
+  isHidden:true} selama trick berjalan, termasuk kartu pembuka trick.
+  Client menggambar punggung kartu.
+- Kartu ke-4 yang trump juga tertutup. Setelah revealDelayMs, server
+  membuka semua rank sekaligus dan mengirim trickResolve; UI membalik
+  kartu bersamaan (animasi <= 600 ms).
+- Opsi Strict/Loose: [BELUM].
+
+4.7 Scoring Mapping [SEBAGIAN: D14, D15]
+Bid 7 (PASS ALL): target 7 / 7. Bid b (8-10 dipakai, SRS sampai 13):
+target declarer = b, target lawan = 14 - b (6,5,4). Ronde berakhir saat
+salah satu target tercapai (D15). Pemenang ronde: declarer berhasil
+jika trick declarer >= bid; selain itu lawan menang ronde.
+
+4.8 Round & Match Scoring
+4.8.1 Best-of-3, pertama yang menang 2 ronde menang match (ROUNDS_TO_WIN
+      = 2). Tim = kursi genap vs ganjil. Snapshot: teamScores, lastRound,
+      matchOver, matchWinner.                                            [SESUAI]
+      Max Rounds Casual tak terbatas / dapat dikonfigurasi:              [BELUM]
+4.8.2 Ready prompt: [BERBEDA D7].
+4.8.3 Persistensi: [BELUM] (tidak ada snapshot 50 ronde atau arsip blob).
+
+4.9 Deterministic Replay System [SEBAGIAN, D19]
+Ada: event log di MatchState dengan sequenceId (seq dari 0), penulisan
+JSONL saat match selesai (MATCH_LOG_DIR), replay() di engine/replay.ts,
+CLI `npm run verify-log`, dan tes replay identik (5 seed + log rusak
+ditolak). Replay hanya memanggil engine yang sama (SRS 4.9.4 terpenuhi di
+sisi server). Belum ada: replay viewer di client, replay lewat Redis
+Stream/blob, snapshot khusus replay. Log lokal hanya ada bila
+MATCH_LOG_DIR diisi.
+
+4.10 Game Loop & Timing
+4.10.1 Tick 20 Hz: [BERBEDA D4]. Pengganti: timer per room.
+4.10.2 Turn timer 25 detik (turnLimitMs) untuk manusia: habis -> server
+       menjalankan langkah bot mode "lowest" (kartu legal terendah di
+       fase TRICK; di bidding dan pilih trump langkah ditentukan bot yang
+       sama, detail tidak diverifikasi satu per satu). Timeout ke-3 dalam satu match
+       -> aiControlled = true. Timer berhenti selama freeze.           [SESUAI]
+       Bot bergerak setelah botDelayMs = 700 ms.                       [BARU]
+       Flag TIMEOUT_FLAG terpisah: tidak ada (dihitung per anggota).
+4.10.3 FREEZE_MAX_WAIT 5 detik dan GET /match/sync: [TIDAK DIPERLUKAN]
+       karena server mengirim snapshot lengkap pada setiap perubahan dan
+       freeze dikendalikan server. Endpoint /match/sync tidak ada.
+
+======================================================================
+5. AI REQUIREMENTS
+======================================================================
+5.1 Overview [SEBAGIAN]
+Hanya Tier A. Metadata aiTier, aiInferTimeMs, aiPolicyVersion dan event
+ai_decision: [BELUM]. Pemain di snapshot hanya punya flag isBot.
+5.2 AI Tiers: Tier A [SESUAI] (legal, prioritas follow suit; decideBid,
+    decideTrump, decideCard di game/ai/bot.ts). Tier B dan C [BELUM].
+5.3 AI Takeover [SEBAGIAN]: bot memakai tangan asli pemain (karena bot
+    bergerak lewat MatchState yang sama). Mengambil alih setelah 3 timeout
+    (D8). Pemain kembali = kendali balik, tanpa mode spectator.
+
+======================================================================
+6. NETWORK REQUIREMENTS
+======================================================================
+6.1 WebSocket Protocol [BERBEDA D5]
+Format JSON {type, payload}, divalidasi zod (network/protocol.ts); pesan
+tidak valid dijawab ACTION_ERROR.
+Client -> Server:
+  JOIN_GAME   {matchId, playerId, token?}
+  START_GAME  {matchId}
+  PLAYER_ACTION {matchId, action, data?}
+     action: BID | PASS | SELECT_TRUMP | PLAY_CARD | NEXT_ROUND | PLAY_AGAIN
+             | CHOOSE_TEAM
+     data: {amount?, suit?, cardIndex?, team?: 'A'|'B'|'RANDOM'}
+Server -> Client:
+  JOINED        {roomId, playerId, token}
+  GAME_UPDATE   GameStateSnapshot (khusus tiap pemain: myHand, legalMask)
+  TRICK_RESOLVE {cards, starter, winner, winningCard}
+  ACTION_ERROR  {msg}
+Event match_start, deal, bidding_update, card_played, score_update,
+match_end: tidak ada sebagai event terpisah (semua lewat GAME_UPDATE).
+6.2 Ordering: pesan satu koneksi diproses berurutan oleh event loop
+    Node (FIFO). sequenceId hanya ada di log kejadian server (D19),
+    belum di pesan WebSocket.                                           [SEBAGIAN]
+6.3 Disconnect & Penalty: [BERBEDA D8]. Penalti MMR/ban: [BELUM].
+6.4 Network Health
+6.4.1 Latency tolerance 150 ms: [BELUM] (server tidak memakai timestamp
+      client; batas giliran dipegang server).
+6.4.2 Heartbeat: ping WebSocket tiap 5 detik; lebih dari 5 ping tanpa
+      pong -> koneksi diputus. Status connection_suspect (3x) dan full
+      resync pasca-suspect: [BELUM] (resync terjadi otomatis karena
+      GAME_UPDATE selalu snapshot penuh).                               [SEBAGIAN]
+
+======================================================================
+7. STATE MACHINE [SESUAI dengan penyederhanaan]
+======================================================================
+WAITING -> DEALING -> BIDDING -> TRUMP_SELECTION -> TRICK (x13, tiap trick
+freeze lalu resolve) -> SCORING -> FINISHED -> ronde berikut (BIDDING)
+atau match baru (PLAY_AGAIN). Fase DEALER_ROTATE dan READY_PROMPT tidak
+berdiri sendiri (D7, D10).
+
+======================================================================
+8. DATA STRUCTURES
+======================================================================
+Sumber kebenaran: shared/types.ts.
+8.1 Card: {suit, rank}. PublicCard: {suit, rank | '?', isHidden?}.       [BERBEDA]
+    Flag isTrump tidak dikirim; client tahu trump dari snapshot.trumpSuit.
+8.2 Player State: PlayerPublic {id, name, seatId, isBot, cardCount,
+    score}. Server menyimpan hand, newAccount, passOverridesLeft di
+    engine. isConnected/aiTier tidak diekspos.                          [SEBAGIAN]
+8.3 Turn update: field setara ada di GameStateSnapshot: activePlayer,
+    leadSuit, legalMask, turnMsLeft, turnMsTotal, canPass, bids.        [BERBEDA]
+8.4 Trick resolve: {cards, starter, winner, winningCard}.                [SESUAI]
+Field penting snapshot lain: roomId, phase, roundNumber, dealerIndex,
+trumpSuit, isTrumpHidden, currentBid, bidWinner, currentTrick,
+trickStarterIndex, trickScores, teamScores, lastRound, matchOver,
+matchWinner, seedHash, serverSeed, hostId, canStart.
+
+======================================================================
+9. NON-FUNCTIONAL REQUIREMENTS & SECURITY
+======================================================================
+9.1 Performance [BELUM DIUKUR]
+Tidak ada pengukuran 20 Hz, latensi 200 ms, atau 5000 match. Batas aman
+di kode: 500 room per proses. Load test: [BELUM].
+9.2 Client Security [SESUAI]
+Client tidak menghitung follow-suit, tidak memvalidasi PASS, tidak
+menentukan main suit atau pemenang. Server menyamarkan rank trump dan
+tangan pemain lain di snapshot (getPublicState).
+9.3 Reliability: snapshot Redis per trick [BELUM]. Crash proses = match
+    hilang.
+9.4 Client-side constraints [SESUAI]
+Animasi kartu jatuh 350 ms (<= 400), flip hidden trump <= 600 ms, hormati
+prefers-reduced-motion. Layout responsif (desktop dimaksimalkan, HP
+portrait tetap rapi). Pada layar sentuh: ketuk kartu untuk memilih, ketuk
+lagi untuk memainkan.
+
+======================================================================
+10. ERROR HANDLING [SEBAGIAN]
+======================================================================
+Kode yang dipakai sebagai awalan pesan ACTION_ERROR: ERROR_ILLEGAL_PLAY,
+BID_FORCED_MIN_8, NAME_TAKEN, ROOM_FULL, GAME_STARTED. Pesan lain berupa
+teks biasa (mis. "Hanya host yang boleh memulai"). Belum ada kode error
+numerik/terstruktur.
+
+======================================================================
+11. DISCONNECT / TIMEOUT SYSTEM [BERBEDA D8]
+======================================================================
+T-0 putus: kursi tetap, timer giliran 25 detik tetap berjalan.
+Timeout ke-3: aiControlled. Masuk lagi dengan token: kendali kembali.
+Grace 60 detik, reclaim < 5 menit, lockout > 5 menit: [BELUM].
+
+======================================================================
+12. ROOM LOGIC [SEBAGIAN]
+======================================================================
+Satu jenis room (mirip Public): host menekan Mulai (tanpa auto-start, D16), override PASS
+aktif, action timer 25 detik aktif. Opsi kustom (override, timer, freeze
+3-5 detik, hidden trump Strict/Loose): [BELUM]. Catatan: RoomOptions di
+kode sudah memuat botDelayMs, trickResolveMs, turnLimitMs, nextRoundMs,
+maxTimeouts, roomIdleMs, tetapi hanya dipakai untuk tes dan konfigurasi
+env (BOT_DELAY_MS, TRICK_RESOLVE_MS, TURN_LIMIT_MS, NEXT_ROUND_MS).
+
+======================================================================
+13. MATCHMAKING [BELUM]    14. SPECTATOR [BELUM]
+======================================================================
+Pemain bergabung dengan kode room yang dibagikan manual.
+
+======================================================================
+15. TEST PLAN [SEBAGIAN]
+======================================================================
+Ada (56 tes, vitest, jalankan: cd server && npm test):
+- Unit engine: main suit & tie-breaker, Bid 8, anti-pass & override,
+  PASS ALL, legalMask, resolusi trick dengan trump, hidden trump,
+  skor target, BO3, determinisme shuffle & dealer.
+- Room: bot mengisi kursi, 1 manusia sampai match selesai, timeout
+  dan takeover.
+- Pilih tim dan kursi berhadapan (seatPlan), timer giliran tidak direset
+  pemain lain, ronde selesai lebih awal, bid maks 10, hidden trump dua tahap.
+- Replay: log dimainkan ulang menghasilkan state identik, seq berurutan,
+  log rusak ditolak.
+- E2E WebSocket: join, start, token reconnect, nama dipakai, aksi ilegal,
+  batas pesan (1008) dan batas koneksi per IP (1013).
+- Verifikasi visual manual dengan Playwright (desktop dan HP portrait).
+CI: .github/workflows/ci.yml (typecheck + tes server + build client).
+Belum ada: load test, chaos test.
+
+======================================================================
+16. DATA & TRAINING PIPELINE [BELUM]
+17. OPERATIONAL REQUIREMENTS [BELUM]
+======================================================================
+Yang ada: GET /health, proses tunggal. Stateless server: tidak berlaku
+(state di memori). Alert dan monitoring: tidak ada.
+
+======================================================================
+18. IMPLEMENTATION ROADMAP (diperbarui)
+======================================================================
+Sprint 1 Core Engine & HMAC ............................... SELESAI
+Sprint 2 WebSocket & Client Lockdown ...................... SELESAI
+         (versi ringan, lihat D5)
+Sprint 2b Satu layar main + hidden trump + demo 1-4 ........ SELESAI [BARU]
+Sprint 2c Pilih tim, bid maks 10, freeze 2 tahap, batas IP .. SELESAI [BARU]
+Sprint 2d Event log + replay lokal + CI + deploy 1 proses ... SELESAI [BARU]
+Sprint 3 Matchmaking & Anti-Abuse ......................... BELUM
+         (batas koneksi/pesan per IP sudah ada, D18)
+Sprint 4 AI Tier B/C & Replay Engine ...................... SEBAGIAN
+         (replay server lokal selesai, D19; AI Tier B/C belum)
+Sprint 5 Timing hardening & latency (150 ms, suspect) ..... SEBAGIAN
+Berikutnya (urutan disarankan): event log + sequenceId -> replay;
+auth sungguhan (JWT); Redis snapshot per trick; Postgres match_log;
+opsi room kustom; matchmaking.
+
+======================================================================
+19. PRACTICAL NOTES
+======================================================================
+- Canonical state hashing: [BELUM].
+- Telemetri immutable: [BELUM].
+- Rotasi SESSION_SECRET: setel lewat env di produksi. Secret JWT lama
+  yang pernah dipakai di repo sebaiknya diganti.
+- Sisa berkas infra yang tidak dipakai: server/docker/docker-compose.yml
+  (Postgres/Redis), .replit. Boleh dihapus atau dibiarkan sebagai
+  persiapan.
+
+======================================================================
+20. FUTURE EXPANSIONS: tidak berubah.
+======================================================================
+
+======================================================================
+21. APPENDIX A: IMPLEMENTATION REFERENCE (as-built)
+======================================================================
+21.1 Konstanta
+server/src/config.ts:
+  TIME = { botDelayMs: 700, revealDelayMs: 1200, trickResolveMs: 2600,
+           turnLimitMs: 25000, nextRoundMs: 30000, maxTimeouts: 3,
+           heartbeatMs: 5000, heartbeatMissedLimit: 5, roomIdleMs: 600000 }
+  MAX_ROOMS = 500
+  LIMITS = { connPerIp: 20, msgsPerSec: 30 }
+  MATCH_LOG_DIR = env MATCH_LOG_DIR (kosong = tidak menulis log)
+  MAX_BID = 10 (engine/state.ts)
+  SESSION_SECRET = env SESSION_SECRET atau acak
+Konstanta SRS yang TIDAK ada di kode: RANKED, ANTI_BOOST, NEW_ACC,
+SERVER_TICK_MS, MAX_CLIENT_DELAY_MS, FREEZE_WAIT_SEC, TAKEOVER_GRACE_SEC,
+objek ANIMATION. Angka BID8 (40 dan 5) ada langsung di bidding.ts.
+
+21.2 Skema Redis/Postgres: [BELUM DIPAKAI]. DDL di SRS asli tetap menjadi
+     target (match_log, player_rank_history, player_misconduct_log).
+21.3 evaluate_main_suit: ada sebagai evaluateMainSuit di
+     server/src/game/engine/bidding.ts dengan urutan pembanding yang sama.
+21.4 isEligibleBid8: ada di bidding.ts dengan satu parameter (hand);
+     logika override di state.ts playerPass (D12).
+21.5 [BARU] Peta file
+  shared/types.ts                  kontrak server-client
+  server/src/index.ts, app.ts      bootstrap, WS, heartbeat
+  server/src/config.ts             konstanta
+  server/src/network/protocol.ts   skema zod pesan client
+  server/src/game/manager.ts       RoomRegistry
+  server/src/game/room.ts          orkestrasi room, timer, bot, snapshot
+  server/src/game/matchLog.ts      tulis dan verifikasi log JSONL (D19)
+  server/src/game/engine/seats.ts  susunan kursi dari pilihan tim (D16)
+  server/src/game/engine/events.ts, replay.ts   log kejadian dan replay
+  server/src/tools/verify-log.ts   CLI verifikasi log
+  server/src/game/engine/*         state, deck, bidding, trick, types
+  server/src/game/ai/bot.ts        bot Tier A
+  client/src/App.vue, components/{SimpleBoard,CenterPanel,CardFace,
+    WaitingRoom,GameLobby}.vue, stores/game.ts, services/socket.ts

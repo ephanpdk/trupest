@@ -4,7 +4,8 @@
 import crypto from 'crypto';
 import { GameStateSnapshot, Suit } from '../../../shared/types';
 import { ActionData } from '../network/protocol';
-import { SESSION_SECRET, TIME } from '../config';
+import { MATCH_LOG_DIR, SESSION_SECRET, TIME } from '../config';
+import { writeMatchLog } from './matchLog';
 import { MatchState, emptySnapshot } from './engine/state';
 import { PlayerInit, Result } from './engine/types';
 import { seatPlan, Team } from './engine/seats';
@@ -63,6 +64,7 @@ export class Room {
     private match: MatchState | null = null;
     private timer: NodeJS.Timeout | null = null;
     private idleTimer: NodeJS.Timeout | null = null;
+    private logged: MatchState | null = null;       // match yang log-nya sudah ditulis
     private announced: object | null = null;     // trick_resolve yang sudah dikirim
     private turnEndsAt: number | null = null;   // batas waktu giliran manusia (epoch ms)
 
@@ -102,10 +104,9 @@ export class Room {
         return { success: true, playerId: name, token: sign(this.id, name) };
     }
 
-    /** Dipanggil network setelah JOINED terkirim: auto-start jika 4 pemain (SRS 12), lalu sinkron state. */
+    /** Dipanggil network setelah JOINED terkirim. Tidak ada auto-start: host menekan Mulai setelah semua memilih tim. */
     afterJoin(): void {
-        if (!this.match && this.members.size === 4) this.begin();
-        else this.broadcast(); // jangan schedule() ulang: itu mengulang timer giliran pemain lain
+        this.broadcast(); // jangan schedule() ulang: itu mengulang timer giliran pemain lain
     }
 
     leave(playerId: string, conn: Conn): void {
@@ -215,6 +216,10 @@ export class Room {
         this.schedule(); // dulu: supaya batas waktu giliran ikut terkirim di snapshot
         this.broadcast();
         const m = this.match;
+        if (m?.matchOver && this.logged !== m && MATCH_LOG_DIR) {
+            this.logged = m;
+            writeMatchLog(MATCH_LOG_DIR, m).catch(e => console.error(`[ROOM ${this.id}] gagal tulis log match:`, e));
+        }
         const r = m && m.trickRevealed ? m.resolving : null;
         if (r && r !== this.announced) {
             this.announced = r;

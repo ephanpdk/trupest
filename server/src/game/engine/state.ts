@@ -5,6 +5,7 @@ import { Player, PlayerInit, GameConfig, Result } from './types';
 import { dealerFromRoundSeed, roundSeedOf, seedHash, shuffleDeck } from './deck';
 import { isEligibleBid8 } from './bidding';
 import { getLegalMask, resolveTrick } from './trick';
+import { GameEvent, GameEventBody } from './events';
 
 const SUITS: Suit[] = ['S', 'H', 'D', 'C'];
 const ROUNDS_TO_WIN = 2; // SRS 4.8.1: Best-of-3
@@ -39,6 +40,7 @@ export class MatchState {
     public roundWins: number[] = [0, 0];
     public lastRound: RoundResult | null = null;
     public matchWinner: number | null = null;
+    public readonly events: GameEvent[] = []; // SRS 4.9: log masukan, dasar replay
 
     constructor(config: GameConfig, players: Array<string | PlayerInit>) {
         if (players.length !== 4) throw new Error('Match membutuhkan tepat 4 pemain');
@@ -58,6 +60,10 @@ export class MatchState {
                 score: 0,
             };
         });
+    }
+
+    private log(e: GameEventBody): void {
+        this.events.push({ seq: this.events.length, ...e } as GameEvent);
     }
 
     get seedHash(): string {
@@ -104,6 +110,7 @@ export class MatchState {
     public startNextRound(): Result {
         if (this.phase !== 'FINISHED') return fail('Ronde belum selesai');
         if (this.matchOver) return fail('Match sudah selesai, mulai match baru');
+        this.log({ t: 'NEXT_ROUND' });
         this.roundNumber++;
         this.dealerIndex = (this.dealerIndex + 1) % 4;
         this.startRound();
@@ -118,6 +125,7 @@ export class MatchState {
         if (!Number.isInteger(amount) || amount < 8 || amount > MAX_BID) return fail(`Bid harus 8-${MAX_BID}`);
         if (amount <= this.currentBid) return fail('Bid harus lebih tinggi dari bid saat ini');
 
+        this.log({ t: 'BID', seat: seatId, amount });
         this.currentBid = amount;
         this.bids[seatId] = amount;
         this.bidWinner = seatId;
@@ -138,6 +146,7 @@ export class MatchState {
             player.passOverridesLeft--;
         }
 
+        this.log({ t: 'PASS', seat: seatId });
         this.bids[seatId] = 'PASS';
         this.passCount++;
         this.biddingTurnCount++;
@@ -173,6 +182,7 @@ export class MatchState {
         if (this.bidWinner !== seatId) return fail('Hanya pemenang bid yang boleh memilih trump');
         if (!SUITS.includes(suit)) return fail('Suit tidak valid');
 
+        this.log({ t: 'TRUMP', seat: seatId, suit });
         this.trumpSuit = suit;
         this.isTrumpHidden = true; // ciri khas TRUPEST: trump selalu dimainkan tertutup (SRS 4.6)
         this.phase = 'TRICK';
@@ -202,6 +212,7 @@ export class MatchState {
         }
         if (!this.legalMaskFor(seatId)[cardIndex]) return fail('ERROR_ILLEGAL_PLAY: wajib mengikuti suit');
 
+        this.log({ t: 'PLAY', seat: seatId, index: cardIndex });
         this.currentTrick.push(player.hand.splice(cardIndex, 1)[0]);
 
         if (this.currentTrick.length < 4) {
@@ -224,6 +235,7 @@ export class MatchState {
     /** Buka semua kartu trump di meja bersamaan; pemenang baru diumumkan setelah ini. */
     public revealTrick(): Result {
         if (!this.resolving) return fail('Tidak ada trick yang menunggu dibuka');
+        this.log({ t: 'REVEAL' });
         this.trickRevealed = true;
         return ok();
     }
@@ -231,6 +243,7 @@ export class MatchState {
     public finishTrick(): Result {
         const r = this.resolving;
         if (!r) return fail('Tidak ada trick yang menunggu resolve');
+        this.log({ t: 'TRICK_END' });
 
         this.trickScores[r.winner % 2]++;
         this.currentTrick = [];

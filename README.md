@@ -38,7 +38,7 @@ cd server && npm install && npm run dev      # WebSocket di :3001 (salin .env.ex
 cd client && npm install && npm run dev      # UI di :5000, proxy /game ke :3001
 ```
 1. Buka beberapa tab/browser, isi nama berbeda dan Room ID yang sama.
-2. Host (pemain pertama) menekan **Mulai Game**; kursi kosong diisi bot. Game mulai otomatis jika 4 pemain masuk.
+2. Tiap pemain boleh memilih Tim A/B atau acak (rekan satu tim duduk berhadapan). Host (pemain pertama) menekan **Mulai Game**; kursi kosong diisi bot.
 3. Match Best-of-3 (SRS 4.8). Ronde berikutnya otomatis lanjut setelah 30 detik jika tidak ada yang menekan tombol.
 
 Tes: `cd server && npm test` (engine, Room 1-4 pemain, WebSocket e2e).
@@ -48,3 +48,21 @@ Tes: `cd server && npm test` (engine, Room 1-4 pemain, WebSocket e2e).
 - `game/room.ts` satu Room = satu match + 1-4 manusia + bot; satu timer per room (bot, turn limit 25 dtk, freeze trick).
 - `network/protocol.ts` + `app.ts` validasi pesan (zod), identitas pemain terikat ke koneksi/token, heartbeat.
 - `shared/types.ts` kontrak server <-> client.
+
+## Deploy (satu proses)
+```bash
+cd client && npm ci && npm run build        # hasil: client/dist
+cd ../server && npm ci
+TRUST_PROXY=1 PORT=8080 SESSION_SECRET=<acak-panjang> npx tsx src/index.ts
+```
+Server menyajikan `client/dist` sendiri (satu alamat untuk halaman dan WebSocket `/game`). Variabel penting:
+`PORT`, `SESSION_SECRET` (tetap, agar reconnect bertahan setelah restart), `TRUST_PROXY=1` di belakang proxy,
+`MATCH_LOG_DIR` (opsional, simpan log match). State game ada di memori: restart server menghapus semua room.
+
+## Log match & replay
+Dengan `MATCH_LOG_DIR` diisi, tiap match yang selesai ditulis sebagai JSONL (seed, pemain, semua masukan dengan `seq`).
+Periksa bahwa log bisa dimainkan ulang persis sama: `cd server && npm run verify-log -- <file.jsonl>`.
+Di akhir match client juga memeriksa `serverSeed` terhadap hash yang dikirim di awal (SRS 4.1).
+
+## CI
+`.github/workflows/ci.yml`: typecheck + tes server, build client, tiap push dan PR.
