@@ -491,3 +491,13 @@ objek ANIMATION. Angka BID8 (40 dan 5) ada langsung di bidding.ts.
   server/src/game/ai/bot.ts        bot Tier A
   client/src/App.vue, components/{SimpleBoard,CenterPanel,CardFace,
     WaitingRoom,GameLobby}.vue, stores/game.ts, services/socket.ts
+
+
+------------------------------------------------------------
+FASE 3 (as-built): AKUN & DATABASE
+- Akun nickname+password (scrypt), JWT HS256 7 hari; tanpa email/OAuth.
+- Postgres opsional (DATABASE_URL): tabel users, match_log, active_match.
+- Checkpoint tiap TRICK_END; pemulihan saat restart via replay event log.
+- NEW_ACC: umur akun < 3 hari ATAU total_matches < 20.
+- Tamu tidak boleh memakai nickname akun; REQUIRE_LOGIN=1 menutup mode tamu.
+- Batas: 10 percobaan auth/menit/IP. Tes: 63 (4 butuh DATABASE_URL_TEST).

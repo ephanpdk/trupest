@@ -66,3 +66,14 @@ Di akhir match client juga memeriksa `serverSeed` terhadap hash yang dikirim di 
 
 ## CI
 `.github/workflows/ci.yml`: typecheck + tes server, build client, tiap push dan PR.
+
+## Akun & database (Fase 3)
+
+Tanpa `DATABASE_URL` server jalan dalam mode tamu (semua di memori). Dengan `DATABASE_URL`:
+- `POST /auth/register` dan `/auth/login` (nickname + password, scrypt, JWT 7 hari).
+- Match selesai disimpan ke `match_log`; match berjalan di-checkpoint tiap trick (`active_match`) dan dipulihkan lewat replay saat server restart.
+- `REQUIRE_LOGIN=1` menutup mode tamu. Nama akun tidak bisa dipakai tamu.
+
+Setup gratis: buat project di Neon atau Supabase, salin connection string ke `DATABASE_URL`, isi `SESSION_SECRET` baru. Tabel dibuat otomatis saat start.
+
+Tes database (dilewati jika tidak diset): `DATABASE_URL_TEST=postgres://... npm test` di `server/`.

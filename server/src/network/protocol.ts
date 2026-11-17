@@ -18,7 +18,12 @@ export type ActionData = z.infer<typeof actionData>;
 export const clientMessage = z.discriminatedUnion('type', [
     z.object({
         type: z.literal('JOIN_GAME'),
-        payload: z.object({ matchId, playerId: z.string().max(40), token: z.string().max(128).optional() }),
+        payload: z.object({
+            matchId,
+            playerId: z.string().max(40),
+            token: z.string().max(128).optional(),
+            accessToken: z.string().max(1024).optional(), // JWT dari /auth/login; kalau ada, nama diambil dari akun
+        }),
     }),
     z.object({ type: z.literal('START_GAME'), payload: z.object({ matchId }) }),
     z.object({

@@ -296,3 +296,13 @@ M8 Pisahkan gateway dari worker (gRPC) hanya jika satu proses tidak
 M9 Matchmaker, anti-abuse, AI Tier B/C.
 Prinsip: setiap langkah harus lulus semua tes yang ada (56 saat ini) dan tidak mengubah
 kontrak shared/types.ts tanpa memperbarui SRS Bagian 6 dan 8.
+
+
+------------------------------------------------------------
+FASE 3 (as-built): AKUN & DATABASE
+- Akun nickname+password (scrypt), JWT HS256 7 hari; tanpa email/OAuth.
+- Postgres opsional (DATABASE_URL): tabel users, match_log, active_match.
+- Checkpoint tiap TRICK_END; pemulihan saat restart via replay event log.
+- NEW_ACC: umur akun < 3 hari ATAU total_matches < 20.
+- Tamu tidak boleh memakai nickname akun; REQUIRE_LOGIN=1 menutup mode tamu.
+- Batas: 10 percobaan auth/menit/IP. Tes: 63 (4 butuh DATABASE_URL_TEST).

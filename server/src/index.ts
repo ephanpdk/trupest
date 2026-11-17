@@ -2,11 +2,18 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 import { buildServer } from './app';
+import { migrate, openDb } from './db';
 
-const app = buildServer();
-const port = Number(process.env.PORT) || 3001;
+async function main() {
+    const db = openDb();
+    if (db) await migrate(db); // buat tabel bila belum ada (aman diulang)
+    else console.warn('DATABASE_URL kosong: mode tamu saja, state hanya di memori.');
 
-app.listen({ port, host: '0.0.0.0' }).catch(err => {
-    app.log.error(err);
+    const app = buildServer({}, db);
+    await app.listen({ port: Number(process.env.PORT) || 3001, host: '0.0.0.0' });
+}
+
+main().catch(err => {
+    console.error(err);
     process.exit(1);
 });

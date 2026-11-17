@@ -103,7 +103,7 @@ export interface GameStateSnapshot {
 // --- Protokol WebSocket: { type, payload } ---
 
 export interface ClientEvents {
-    JOIN_GAME: { matchId: string; playerId: string; token?: string };
+    JOIN_GAME: { matchId: string; playerId: string; token?: string; accessToken?: string };
     START_GAME: { matchId: string };
     PLAYER_ACTION: {
         matchId: string;

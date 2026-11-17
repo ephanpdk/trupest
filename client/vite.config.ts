@@ -20,6 +20,10 @@ export default defineConfig({
         ws: true,
         changeOrigin: true
       },
+      '/auth': {
+        target: 'http://localhost:3001',
+        changeOrigin: true
+      },
       '/health': {
         target: 'http://localhost:3001',
         changeOrigin: true

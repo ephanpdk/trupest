@@ -5,7 +5,9 @@ import crypto from 'crypto';
 import { GameStateSnapshot, Suit } from '../../../shared/types';
 import { ActionData } from '../network/protocol';
 import { MATCH_LOG_DIR, SESSION_SECRET, TIME } from '../config';
-import { writeMatchLog } from './matchLog';
+import { matchRecord, MatchRecord, writeMatchLog } from './matchLog';
+import { replay } from './engine/replay';
+import { ActiveRow } from '../db';
 import { MatchState, emptySnapshot } from './engine/state';
 import { PlayerInit, Result } from './engine/types';
 import { seatPlan, Team } from './engine/seats';
@@ -25,6 +27,10 @@ export interface RoomOptions {
     maxTimeouts: number;
     roomIdleMs: number;
     onEmpty?: () => void;
+    // Hook penyimpanan (opsional, dipasang app.ts bila ada database). Room sendiri tidak tahu soal DB.
+    onCheckpoint?: (r: MatchRecord, userIds: Array<string | null>) => void; // tiap trick selesai
+    onMatchEnd?: (r: MatchRecord, userIds: Array<string | null>) => void;
+    onDiscard?: (roomId: string) => void; // room dibuang saat match belum selesai
 }
 
 export const defaultRoomOptions = (): RoomOptions => ({
@@ -44,6 +50,13 @@ interface Member {
     timeouts: number;       // SRS 4.10.2: 3x timeout dalam 1 match -> AI takeover
     aiControlled: boolean;
     team: Team | null;      // pilihan tim di waiting room; null = acak
+    userId: string | null;  // akun (null = tamu)
+    newAccount: boolean;    // SRS 4.3.2; tamu selalu true
+}
+
+export interface Account {
+    userId: string;
+    newAccount: boolean;
 }
 
 // Token sesi: tanpa ini orang lain tidak bisa memakai nama pemain yang sudah ada di room.
@@ -64,7 +77,8 @@ export class Room {
     private match: MatchState | null = null;
     private timer: NodeJS.Timeout | null = null;
     private idleTimer: NodeJS.Timeout | null = null;
-    private logged: MatchState | null = null;       // match yang log-nya sudah ditulis
+    private finished: MatchState | null = null;     // match yang akhirnya sudah dicatat
+    private checkpointed = 0;                       // jumlah events saat checkpoint terakhir
     private announced: object | null = null;     // trick_resolve yang sudah dikirim
     private turnEndsAt: number | null = null;   // batas waktu giliran manusia (epoch ms)
 
@@ -82,13 +96,14 @@ export class Room {
 
     // ---------- MEMBERSHIP ----------
 
-    join(rawName: string, token: string | undefined, conn: Conn): Result & { playerId?: string; token?: string } {
+    join(rawName: string, token: string | undefined, conn: Conn, account?: Account): Result & { playerId?: string; token?: string } {
         const name = String(rawName ?? '').trim();
         if (!NAME_RE.test(name)) return { success: false, msg: 'Nama harus 1-20 karakter (huruf/angka/spasi)' };
 
         const existing = this.members.get(name);
         if (existing) {
-            if (!validToken(this.id, name, token)) return { success: false, msg: 'NAME_TAKEN: nama sudah dipakai di room ini' };
+            const owner = !!account && existing.userId === account.userId; // pemilik akun tidak perlu token sesi room
+            if (!owner && !validToken(this.id, name, token)) return { success: false, msg: 'NAME_TAKEN: nama sudah dipakai di room ini' };
             // SRS 3.1: login ganda -> sesi lama ditendang. Reconnect = kendali kembali ke pemain.
             if (existing.conn && existing.conn !== conn) existing.conn.close('replaced');
             existing.conn = conn;
@@ -97,7 +112,7 @@ export class Room {
         } else {
             if (this.match) return { success: false, msg: 'GAME_STARTED: room sudah berjalan' };
             if (this.members.size >= 4) return { success: false, msg: 'ROOM_FULL: room sudah 4 pemain' };
-            this.members.set(name, { id: name, token: sign(this.id, name), conn, timeouts: 0, aiControlled: false, team: null });
+            this.members.set(name, { id: name, token: sign(this.id, name), conn, timeouts: 0, aiControlled: false, team: null, userId: account?.userId ?? null, newAccount: account?.newAccount ?? true });
         }
 
         this.cancelIdle();
@@ -132,6 +147,28 @@ export class Room {
         if (byPlayerId !== this.hostId) return { success: false, msg: 'Hanya host yang boleh memulai' };
         this.begin();
         return { success: true };
+    }
+
+    private userIds(m: MatchState): Array<string | null> {
+        return m.players.map(p => this.members.get(p.id)?.userId ?? null);
+    }
+
+    /** Pulihkan match dari checkpoint DB (replay deterministik). Pemain manusia masuk lagi lewat login. false = tidak bisa dipulihkan. */
+    restore(r: ActiveRow): boolean {
+        if (this.match) return false;
+        const m = replay({ matchId: this.id, seed: r.seed }, r.players, r.events);
+        if (m.matchOver) return false;
+        r.players.forEach((p, i) => {
+            if (p.isBot) return;
+            this.members.set(p.id, {
+                id: p.id, token: sign(this.id, p.id), conn: null, timeouts: 0, aiControlled: false,
+                team: null, userId: r.userIds[i] ?? null, newAccount: p.newAccount ?? true,
+            });
+        });
+        this.match = m;
+        this.checkpointed = m.events.length;
+        this.afterChange();
+        return true;
     }
 
     private begin(prev?: PlayerInit[]): void {
@@ -216,9 +253,15 @@ export class Room {
         this.schedule(); // dulu: supaya batas waktu giliran ikut terkirim di snapshot
         this.broadcast();
         const m = this.match;
-        if (m?.matchOver && this.logged !== m && MATCH_LOG_DIR) {
-            this.logged = m;
-            writeMatchLog(MATCH_LOG_DIR, m).catch(e => console.error(`[ROOM ${this.id}] gagal tulis log match:`, e));
+        if (m?.matchOver) {
+            if (this.finished !== m) {
+                this.finished = m;
+                this.opts.onMatchEnd?.(matchRecord(m), this.userIds(m));
+                if (MATCH_LOG_DIR) writeMatchLog(MATCH_LOG_DIR, m).catch(e => console.error(`[ROOM ${this.id}] gagal tulis log match:`, e));
+            }
+        } else if (m && m.events.at(-1)?.t === 'TRICK_END' && this.checkpointed !== m.events.length) {
+            this.checkpointed = m.events.length;
+            this.opts.onCheckpoint?.(matchRecord(m), this.userIds(m));
         }
         const r = m && m.trickRevealed ? m.resolving : null;
         if (r && r !== this.announced) {
